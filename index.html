@@ -29,6 +29,13 @@
     backdrop-filter:blur(2px);border-radius:14px;z-index:20;
     transition:opacity .3s;
   }
+  /* タイトル画面だけ fal.ai 生成のキーアート画像を背景に敷く（読込失敗時は元のグラデ背景にフォールバック） */
+  #titleScreen{
+    background:
+      radial-gradient(120% 120% at 50% 42%,rgba(5,3,15,.22) 0%,rgba(5,3,15,.58) 55%,rgba(5,3,15,.93) 100%),
+      url('art/keyart.png') center 42%/cover no-repeat,
+      radial-gradient(120% 120% at 50% 30%,rgba(12,8,36,.55),rgba(5,3,15,.9) 80%);
+  }
   .hidden{opacity:0;pointer-events:none;}
   h1{
     font-size:clamp(38px,9vw,86px);letter-spacing:.14em;font-weight:900;
