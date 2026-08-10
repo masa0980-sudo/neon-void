@@ -63,6 +63,19 @@
   }
   .btn:hover{transform:translateY(-2px) scale(1.03);box-shadow:0 0 44px rgba(255,62,165,.7);}
   .btn:active{transform:scale(.97);}
+  .diffRow{margin-top:22px;display:flex;gap:10px;justify-content:center;}
+  .diffBtn{
+    cursor:pointer;user-select:none;padding:9px 22px;font-size:13px;font-weight:800;
+    letter-spacing:.12em;color:#a9c8e6;border:1.5px solid rgba(169,112,255,.4);
+    border-radius:24px;background:rgba(18,12,44,.5);transition:all .15s;
+  }
+  .diffBtn:hover{border-color:var(--cyan);color:#eaf6ff;}
+  .diffBtn.active{
+    color:#05030f;border-color:transparent;
+    background:linear-gradient(90deg,var(--cyan),var(--violet));
+    box-shadow:0 0 18px rgba(169,112,255,.6);
+  }
+  .diffLabel{margin-top:14px;font-size:11px;letter-spacing:.3em;color:#7d6cb0;text-transform:uppercase;}
   .big{font-size:clamp(30px,7vw,60px);font-weight:900;letter-spacing:.1em;}
   .go{color:var(--magenta);filter:drop-shadow(0 0 20px rgba(255,62,165,.6));}
   .win{color:var(--gold);filter:drop-shadow(0 0 20px rgba(255,211,78,.6));}
@@ -91,8 +104,14 @@
         </div>
         <p style="margin-top:16px;font-size:13px;color:#a9c8e6;line-height:1.7">
           敵を連続撃破して<b style="color:var(--gold)">コンボ</b>を稼ぎ、光る<b style="color:var(--cyan)">パワーアップ</b>で武器を強化。
-          ピンチは<b style="color:var(--magenta)">バレットタイム</b>で切り抜けろ。3ウェーブ目に待つ<b style="color:var(--gold)">ボス</b>を倒せば勝利だ。
+          ピンチは<b style="color:var(--magenta)">バレットタイム</b>で切り抜けろ。全<b style="color:var(--gold)">3ステージ</b>、各ステージの最後に待つ<b style="color:var(--gold)">ボス</b>を倒すと、ストーリーがつながって次のステージへ進む。
         </p>
+      </div>
+      <div class="diffLabel">Difficulty</div>
+      <div class="diffRow" id="diffRow">
+        <div class="diffBtn" data-diff="easy">EASY</div>
+        <div class="diffBtn active" data-diff="normal">NORMAL</div>
+        <div class="diffBtn" data-diff="hard">HARD</div>
       </div>
       <button class="btn" id="startBtn">START</button>
       <div class="tag flash">CLICK / PRESS ENTER</div>
@@ -103,6 +122,16 @@
       <div id="endTitle" class="big go">GAME OVER</div>
       <div class="stat" id="endStat"></div>
       <button class="btn" id="retryBtn">RETRY</button>
+    </div>
+
+    <!-- ステージクリア（面間ストーリー） -->
+    <div id="stageClearScreen" class="overlay hidden">
+      <div class="big win" id="stageClearTitle">STAGE CLEAR</div>
+      <div class="panel" id="stageStoryPanel">
+        <p id="stageStoryText" style="font-size:14px;color:#cfe8ff;line-height:1.9;"></p>
+      </div>
+      <button class="btn" id="continueBtn">CONTINUE</button>
+      <div class="tag flash">CLICK / PRESS ENTER</div>
     </div>
 
     <!-- ポーズ -->
@@ -145,7 +174,11 @@ const KEYMAP = {
 addEventListener('keydown',e=>{
   if(KEYMAP[e.code]){keys[KEYMAP[e.code]]=true; e.preventDefault();}
   if(e.code==='KeyP') togglePause();
-  if(e.code==='Enter'){ if(state==='title') startGame(); else if(state==='end') startGame(); }
+  if(e.code==='Enter'){
+    if(state==='title') startGame();
+    else if(state==='end') startGame();
+    else if(state==='stageClear') nextStage();
+  }
 });
 addEventListener('keyup',e=>{ if(KEYMAP[e.code]) keys[KEYMAP[e.code]]=false; });
 
@@ -191,29 +224,55 @@ const Sound = (()=>{
   // ================== 凝ったシンセウェーブBGM（先読みスケジューラ方式） ==================
   // 4和音パッド + ローリングベース + ディレイ付きアルペジオリード + キック/スネア/ハイハット
   // + キックに合わせたサイドチェイン風ダッキングで「うねる」シンセウェーブサウンドを合成する。
-  const BPM=100;
-  const STEP_DUR=60/BPM/4;           // 16分音符の長さ(秒)
+  // ステージごとに BPM・コード進行・リード音色・密度(intensity) を切り替え、奥に進むほど
+  // 楽曲が張り詰めていく構成にする。
   const SCHEDULE_AHEAD=0.12;         // どれだけ先までスケジュールしておくか(秒)
   const LOOKAHEAD_MS=25;             // スケジューラの実行間隔(ms)
-  let bgmTimerId=null, nextStepTime=0, currentStep=0;
+  let bgmTimerId=null, nextStepTime=0, currentStep=0, stepDur=60/100/4;
   let bgmDelay=null, bgmDelayFeedback=null, bgmDelayWet=null;
+  let trackIndex=0;
 
-  // Aナチュラルマイナー・スケール上の三和音進行（i - VI - III - VII）。数値はAからの半音オフセット。
-  const CHORDS=[
-    {root:0,  tones:[0,3,7]},    // Am
-    {root:8,  tones:[8,12,15]},  // F
-    {root:3,  tones:[3,7,10]},   // C
-    {root:10, tones:[10,14,17]}, // G
+  // 半音オフセットはAを基準(0)としたAナチュラルマイナー・スケール上の値。
+  const STAGE_TRACKS=[
+    { // Stage1 NEON CITY: i-VI-III-VII の王道進行、落ち着いたテンポ
+      bpm:100, leadType:'square', intensity:1,
+      chords:[
+        {root:0,  tones:[0,3,7]},    // Am
+        {root:8,  tones:[8,12,15]},  // F
+        {root:3,  tones:[3,7,10]},   // C
+        {root:10, tones:[10,14,17]}, // G
+      ]
+    },
+    { // Stage2 SIGNAL DEPTHS: i-iv-VII-III、少し速く・不穏に沈んでいく進行
+      bpm:108, leadType:'square', intensity:1.3,
+      chords:[
+        {root:0,  tones:[0,3,7]},    // Am
+        {root:5,  tones:[5,8,12]},   // Dm
+        {root:10, tones:[10,14,17]}, // G
+        {root:3,  tones:[3,7,10]},   // C
+      ]
+    },
+    { // Stage3 VOID CORE: i-V(長3度に変化させた緊張感)-VI-V、速いテンポで攻める
+      bpm:120, leadType:'sawtooth', intensity:1.7,
+      chords:[
+        {root:0,  tones:[0,3,7]},    // Am
+        {root:7,  tones:[7,11,14]},  // E(メジャー・緊張感)
+        {root:8,  tones:[8,12,15]},  // F
+        {root:7,  tones:[7,11,14]},  // E
+      ]
+    },
   ];
   const noteFreq=(semi,oct=0)=>110*Math.pow(2,(semi+12*oct)/12);
 
   function setupBus(){
-    if(bgmDelay) return;
-    bgmDelay=ac.createDelay(1.0); bgmDelay.delayTime.value=STEP_DUR*3;
-    bgmDelayFeedback=ac.createGain(); bgmDelayFeedback.gain.value=0.32;
-    bgmDelayWet=ac.createGain(); bgmDelayWet.gain.value=0.22;
-    bgmDelay.connect(bgmDelayFeedback); bgmDelayFeedback.connect(bgmDelay);
-    bgmDelay.connect(bgmDelayWet); bgmDelayWet.connect(master);
+    if(!bgmDelay){
+      bgmDelay=ac.createDelay(1.0);
+      bgmDelayFeedback=ac.createGain(); bgmDelayFeedback.gain.value=0.32;
+      bgmDelayWet=ac.createGain(); bgmDelayWet.gain.value=0.22;
+      bgmDelay.connect(bgmDelayFeedback); bgmDelayFeedback.connect(bgmDelay);
+      bgmDelay.connect(bgmDelayWet); bgmDelayWet.connect(master);
+    }
+    bgmDelay.delayTime.value=stepDur*3;
   }
 
   function synthNote(freq,t,dur,type,vol,filterFreq,toDelay){
@@ -289,40 +348,46 @@ const Sound = (()=>{
   const ARP_STEPS=[2,6,10,14];
 
   function scheduleStep(stepIdx,t){
-    const chord=CHORDS[Math.floor(stepIdx/16)%CHORDS.length];
+    const track=STAGE_TRACKS[trackIndex];
+    const chord=track.chords[Math.floor(stepIdx/16)%track.chords.length];
     const s=stepIdx%16;
     const bossFight = typeof boss!=='undefined' && !!boss; // ボス戦は少しだけ密度を上げる
+    const dense = track.intensity>=1.5; // 最終ステージはドラムを増量してより攻撃的に
 
     // ドラム
     if(s%4===0) kickDrum(t);
+    if(dense && (s===6||s===14)) kickDrum(t); // 裏拍にもキックを足してドライブ感を出す
     if(s===4||s===12) snareDrum(t);
-    if(bossFight){ hihat(t,s%4===2); }
+    if(bossFight||dense){ hihat(t,s%4===2); }
     else if(s%2===0) hihat(t,false); else if(Math.random()<0.3) hihat(t,true);
 
     // ベース
     const bOff=BASS_STEPS[s];
-    if(bOff!==null) synthNote(noteFreq(chord.root+bOff,-2),t,STEP_DUR*3.4,'sawtooth',0.17,850,false);
+    if(bOff!==null) synthNote(noteFreq(chord.root+bOff,-2),t,stepDur*3.4,'sawtooth',0.17*Math.min(track.intensity,1.3),850,false);
 
     // パッド（各バーの頭で発音・持続）
-    if(s===0) padChord(chord.tones,t,STEP_DUR*16*0.98);
+    if(s===0) padChord(chord.tones,t,stepDur*16*0.98);
 
-    // アルペジオ・リード（オフビート・ディレイ付き）
+    // アルペジオ・リード（オフビート・ディレイ付き。ステージが進むほど音色が鋭くなる）
     if(ARP_STEPS.includes(s)){
       const idx=(Math.floor(stepIdx/2))%chord.tones.length;
-      synthNote(noteFreq(chord.tones[idx],1),t,STEP_DUR*1.1,'square',0.09,2600,true);
+      synthNote(noteFreq(chord.tones[idx],1),t,stepDur*1.1,track.leadType,0.09,2600,true);
     }
   }
 
   function schedulerLoop(){
     while(nextStepTime<ac.currentTime+SCHEDULE_AHEAD){
       scheduleStep(currentStep,nextStepTime);
-      nextStepTime+=STEP_DUR;
+      nextStepTime+=stepDur;
       currentStep++;
     }
   }
 
-  function startBGM(){
-    if(!ac||bgmTimerId) return;
+  function startBGM(stageIdx){
+    if(typeof stageIdx==='number') trackIndex=clamp(stageIdx,0,STAGE_TRACKS.length-1);
+    if(!ac) return;
+    stepDur=60/STAGE_TRACKS[trackIndex].bpm/4;
+    if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; } // トラック切替時は張り直す
     setupBus();
     currentStep=0; nextStepTime=ac.currentTime+0.05;
     master.gain.cancelScheduledValues(ac.currentTime);
@@ -352,17 +417,27 @@ const rnd=(a,b)=>a+Math.random()*(b-a);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const dist2=(ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;};
 
+/* ---------------------- 難易度 ---------------------- */
+const DIFFICULTY = {
+  easy:{   hp:10, level:2, fireCdMul:1.5,  bulletSpdMul:0.78, waveCountMul:0.7,  bossHpMul:0.75, bossFireMul:1.35, powerRate:0.4  },
+  normal:{ hp:8,  level:2, fireCdMul:1,    bulletSpdMul:1,    waveCountMul:1,    bossHpMul:1,    bossFireMul:1,    powerRate:0.3  },
+  hard:{   hp:6,  level:1, fireCdMul:0.68, bulletSpdMul:1.3,  waveCountMul:1.35, bossHpMul:1.35, bossFireMul:0.75, powerRate:0.2  },
+};
+let difficulty='normal';
+function DIFF(){ return DIFFICULTY[difficulty]; }
+
 /* ---------------------- エンティティ ---------------------- */
 let player, bullets, enemyBullets, enemies, particles, powerups, stars, floaters;
 let boss, wave, waveTimer, spawnTimer, score, combo, comboTimer, best=0;
 let slowMo, slowGauge, screenShake, state, hitStop;
 
 function resetGame(){
-  player = {x:W/2,y:H-140,r:16,speed:7,hp:8,maxhp:8,
-            cd:0,level:2,invuln:0,thruster:0};
+  const d=DIFF();
+  player = {x:W/2,y:H-140,r:16,speed:7,hp:d.hp,maxhp:d.hp,
+            cd:0,level:d.level,invuln:0,thruster:0};
   bullets=[]; enemyBullets=[]; enemies=[]; particles=[];
   powerups=[]; floaters=[]; boss=null;
-  wave=0; waveTimer=90; spawnTimer=0;
+  wave=0; waveTimer=90; spawnTimer=0; stageIndex=0;
   score=0; combo=0; comboTimer=0;
   slowMo=false; slowGauge=100; screenShake=0; hitStop=0;
   initStars();
@@ -392,23 +467,26 @@ function ring(x,y,color,r0,r1,life=26){
 
 /* ---------------------- 敵 ---------------------- */
 function spawnEnemy(type){
-  const x=rnd(60,W-60);
+  const x=rnd(60,W-60), fm=DIFF().fireCdMul;
   if(type==='drone')
     enemies.push({type,x,y:-30,r:16,hp:2,t:0,phase:rnd(0,6),
-      color:'#22e3ff',score:100,fireCd:rnd(100,180)});
+      color:'#22e3ff',score:100,fireCd:rnd(100,180)*fm});
   else if(type==='weaver')
     enemies.push({type,x,y:-30,r:18,hp:3,t:0,phase:rnd(0,6),
-      color:'#a970ff',score:180,fireCd:rnd(90,150)});
+      color:'#a970ff',score:180,fireCd:rnd(90,150)*fm});
   else if(type==='tank')
     enemies.push({type,x,y:-40,r:26,hp:7,t:0,phase:0,
-      color:'#ff3ea5',score:400,fireCd:120});
+      color:'#ff3ea5',score:400,fireCd:120*fm});
 }
 
 function spawnBoss(){
-  boss={x:W/2,y:-160,ty:180,r:70,hp:150,maxhp:150,t:0,
-    pattern:0,patternT:0,fireCd:0,color:'#ff3ea5',enter:true,dead:false};
+  const sb=STAGES[stageIndex].boss;
+  const bhp=Math.round(sb.hp*DIFF().bossHpMul);
+  boss={x:W/2,y:-160,ty:180,r:70,hp:bhp,maxhp:bhp,t:0,
+    pattern:0,patternT:0,patternCount:sb.patterns,fireCd:0,
+    color:sb.color,name:sb.name,enter:true,dead:false};
   Sound.boss(); screenShake=18;
-  floater('WARNING — BOSS','#ff3ea5',W/2,H/2-40,120,42);
+  floater('WARNING — '+sb.name,'#ff3ea5',W/2,H/2-40,110,34);
 }
 
 /* ---------------------- パワーアップ ---------------------- */
@@ -443,7 +521,7 @@ function playerShoot(){
 
 function enemyShoot(e){
   const ang=Math.atan2(player.y-e.y,player.x-e.x);
-  const sp=e.type==='tank'?2.4:3.2;
+  const sp=(e.type==='tank'?2.4:3.2)*DIFF().bulletSpdMul;
   const add={r:7,color:e.color,pl:false};
   if(e.type==='weaver'){
     for(let k=-1;k<=1;k++){
@@ -462,24 +540,46 @@ function enemyShoot(e){
 }
 
 function bossShoot(b){
-  const cx=b.x,cy=b.y+40;
+  const cx=b.x,cy=b.y+40, bm=DIFF().bulletSpdMul;
   if(b.pattern===0){ // 全方位リング
     const n=14;
     for(let i=0;i<n;i++){
       const a=b.t*0.02+i*(Math.PI*2/n);
-      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*3.4,vy:Math.sin(a)*3.4,r:8,color:'#ff8fd0',pl:false});
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*3.4*bm,vy:Math.sin(a)*3.4*bm,r:8,color:'#ff8fd0',pl:false});
     }
   }else if(b.pattern===1){ // 自機狙い3連
     const ang=Math.atan2(player.y-cy,player.x-cx);
     for(let k=-2;k<=2;k++){
       const a=ang+k*0.16;
-      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*5,vy:Math.sin(a)*5,r:8,color:'#ffd34e',pl:false});
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*5*bm,vy:Math.sin(a)*5*bm,r:8,color:'#ffd34e',pl:false});
     }
-  }else{ // 左右スイープ
+  }else if(b.pattern===2){ // 左右スイープ
     const a=Math.PI/2+Math.sin(b.t*0.05)*0.9;
     for(let k=-1;k<=1;k++){
       const aa=a+k*0.2;
-      enemyBullets.push({x:cx,y:cy,vx:Math.cos(aa)*4.2,vy:Math.sin(aa)*4.2,r:8,color:'#a970ff',pl:false});
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(aa)*4.2*bm,vy:Math.sin(aa)*4.2*bm,r:8,color:'#a970ff',pl:false});
+    }
+  }else if(b.pattern===3){ // 二重螺旋
+    for(let arm=0;arm<2;arm++){
+      const a=b.t*0.11+arm*Math.PI;
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*3.8*bm,vy:Math.sin(a)*3.8*bm,r:7,color:'#ffd34e',pl:false});
+      const a2=a+0.5;
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a2)*3.8*bm,vy:Math.sin(a2)*3.8*bm,r:7,color:'#22e3ff',pl:false});
+    }
+  }else if(b.pattern===4){ // 降下ウォール：隙間が左右にゆっくり動く
+    const cols=12;
+    const gapCenter=Math.round((Math.sin(b.t*0.025)*0.5+0.5)*(cols-1));
+    for(let c=0;c<cols;c++){
+      if(Math.abs(c-gapCenter)<=1) continue; // 抜け道
+      const bx=60+c*((W-120)/(cols-1));
+      enemyBullets.push({x:bx,y:cy-30,vx:0,vy:3.4*bm,r:7,color:'#22e3ff',pl:false});
+    }
+  }else{ // 乱れ咲きスパーク：速度違いの多方向弾（最終ステージのみ出現）
+    const n=10;
+    for(let i=0;i<n;i++){
+      const a=(Math.PI*2/n)*i+b.t*0.05;
+      const spd=(3+(i%3)*0.9)*bm;
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,r:6,color:'#ffd34e',pl:false});
     }
   }
   Sound.hit();
@@ -511,7 +611,7 @@ function killEnemy(e){
   Sound.boom(); screenShake=Math.max(screenShake,6); hitStop=2;
   addScore(e.score); addCombo(e.x,e.y);
   floater('+'+e.score,'#bfe0ff',e.x,e.y,34,16);
-  if(Math.random()<0.3) dropPower(e.x,e.y);
+  if(Math.random()<DIFF().powerRate) dropPower(e.x,e.y);
   enemies.splice(enemies.indexOf(e),1);
 }
 
@@ -531,14 +631,19 @@ const endScreen=document.getElementById('endScreen');
 const pauseScreen=document.getElementById('pauseScreen');
 const endTitle=document.getElementById('endTitle');
 const endStat=document.getElementById('endStat');
+const stageClearScreen=document.getElementById('stageClearScreen');
+const stageClearTitle=document.getElementById('stageClearTitle');
+const stageStoryText=document.getElementById('stageStoryText');
 
 function startGame(){
-  Sound.ensure(); Sound.startBGM();
+  Sound.ensure();
   resetGame();
+  Sound.startBGM(stageIndex);
   state='play';
   titleScreen.classList.add('hidden');
   endScreen.classList.add('hidden');
   pauseScreen.classList.add('hidden');
+  stageClearScreen.classList.add('hidden');
 }
 function endGame(win){
   state='end'; Sound.stopBGM();
@@ -549,8 +654,17 @@ function endGame(win){
   endStat.innerHTML =
     `SCORE <span>${score.toLocaleString()}</span><br>`+
     `MAX COMBO <span>${maxCombo}</span><br>`+
-    `BEST <span>${best.toLocaleString()}</span>`;
+    `BEST <span>${best.toLocaleString()}</span><br>`+
+    `DIFFICULTY <span>${difficulty.toUpperCase()}</span>`;
   endScreen.classList.remove('hidden');
+}
+function showStageClear(){
+  state='stageClear'; Sound.stopBGM();
+  const finishedStg=STAGES[stageIndex];
+  stageClearTitle.textContent='STAGE '+(stageIndex+1)+' CLEAR';
+  stageStoryText.innerHTML=finishedStg.clearStory.replace(/\n/g,'<br>')+
+    `<br><br><span style="color:var(--gold)">NEXT: ${STAGES[stageIndex+1].name}</span>`;
+  stageClearScreen.classList.remove('hidden');
 }
 function togglePause(){
   if(state==='play'){ state='pause'; pauseScreen.classList.remove('hidden'); Sound.stopBGM(); }
@@ -558,37 +672,79 @@ function togglePause(){
 }
 document.getElementById('startBtn').onclick=startGame;
 document.getElementById('retryBtn').onclick=startGame;
+document.getElementById('continueBtn').onclick=nextStage;
+document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    difficulty=btn.dataset.diff;
+    document.querySelectorAll('#diffRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
+  });
+});
 
-/* ---------------------- ウェーブ制御 ---------------------- */
+/* ---------------------- ステージ制御（3ステージ・ストーリーで接続） ---------------------- */
 let maxCombo=0;
-const WAVES=[
-  {kind:'drone', count:10, gap:48},
-  {kind:'mix',   count:14, gap:50},
-  {kind:'mix2',  count:16, gap:48},
-  {kind:'boss'}
+let stageIndex=0;
+
+const STAGES=[
+  {
+    name:'STAGE 1 — NEON CITY', tint:'34,227,255',
+    waves:[
+      {kind:'drone', count:10, gap:48},
+      {kind:'mix',   count:14, gap:50},
+      {kind:'mix2',  count:16, gap:48},
+    ],
+    boss:{name:'OUTER SENTINEL', hp:130, color:'#ff3ea5', patterns:3}, // ring/aim/sweep
+    clearStory:'外縁の監視網は沈黙した。だがこれは始まりに過ぎない。\n落とした残骸には、同じ紋章が刻まれている——\nより深いシグナルが、まだ奥で明滅している。'
+  },
+  {
+    name:'STAGE 2 — SIGNAL DEPTHS', tint:'169,112,255',
+    waves:[
+      {kind:'mix',   count:16, gap:44},
+      {kind:'mix2',  count:20, gap:42},
+      {kind:'heavy', count:18, gap:40},
+    ],
+    boss:{name:'SIGNAL WRAITH', hp:190, color:'#a970ff', patterns:5}, // + spiral, wall
+    clearStory:'深層のシグナルは静まった。残された紋章が指す先は一つ——\nすべての信号が生まれる場所、虚空の中枢だ。'
+  },
+  {
+    name:'STAGE 3 — VOID CORE', tint:'255,62,165',
+    waves:[
+      {kind:'heavy', count:18, gap:40},
+      {kind:'mix2',  count:22, gap:36},
+      {kind:'heavy', count:22, gap:34},
+    ],
+    boss:{name:'VOID CORE', hp:260, color:'#ff3ea5', patterns:6}, // 全パターン + spark
+    clearStory:''
+  },
 ];
+
 let waveLeft=0;
 
 function startWave(){
   wave++;
-  if(wave-1>=WAVES.length){ return; }
-  const w=WAVES[wave-1];
-  if(w.kind==='boss'){ spawnBoss(); return; }
-  waveLeft=w.count; spawnTimer=0;
-  floater('WAVE '+wave,'#22e3ff',W/2,H/2-30,90,40);
+  const stg=STAGES[stageIndex];
+  if(wave<=stg.waves.length){
+    const w=stg.waves[wave-1];
+    waveLeft=Math.max(4,Math.round(w.count*DIFF().waveCountMul)); spawnTimer=0;
+    floater('WAVE '+wave+' / '+stg.waves.length,'#22e3ff',W/2,H/2-30,90,40);
+  }else if(wave===stg.waves.length+1){
+    spawnBoss();
+  }
 }
 
 function updateSpawner(dt){
   if(boss) return;
-  const w=WAVES[wave-1];
-  if(!w||w.kind==='boss') return;
+  const stg=STAGES[stageIndex];
+  if(wave>stg.waves.length) return; // ボス出現待ち／ボス戦中
+  const w=stg.waves[wave-1];
+  if(!w) return;
   if(waveLeft>0){
     spawnTimer-=dt;
     if(spawnTimer<=0){
       spawnTimer=w.gap;
       let t='drone';
-      if(w.kind==='mix') t=['drone','drone','weaver'][Math.floor(rnd(0,3))];
-      if(w.kind==='mix2') t=['drone','weaver','weaver','tank'][Math.floor(rnd(0,4))];
+      if(w.kind==='mix')   t=['drone','drone','weaver'][Math.floor(rnd(0,3))];
+      if(w.kind==='mix2')  t=['drone','weaver','weaver','tank'][Math.floor(rnd(0,4))];
+      if(w.kind==='heavy') t=['weaver','tank','tank','drone'][Math.floor(rnd(0,4))];
       spawnEnemy(t); waveLeft--;
     }
   } else if(enemies.length===0){
@@ -596,6 +752,13 @@ function updateSpawner(dt){
     waveTimer-=dt;
     if(waveTimer<=0){ waveTimer=60; startWave(); }
   }
+}
+
+function nextStage(){
+  stageIndex++; wave=0; waveTimer=70; spawnTimer=0; waveLeft=0;
+  bullets=[]; enemyBullets=[]; enemies=[]; powerups=[];
+  stageClearScreen.classList.add('hidden');
+  state='play'; Sound.startBGM(stageIndex);
 }
 
 /* ---------------------- メイン更新 ---------------------- */
@@ -670,7 +833,7 @@ function update(dt){
     else if(e.type==='tank'){ e.y+=Math.min(0.9,(160-e.y)*0.02)*ts*dt; if(e.y>150)e.y=150+Math.sin(e.t*0.03)*30; }
     e.x=clamp(e.x,24,W-24);
     e.fireCd-=ts*dt;
-    if(e.fireCd<=0 && e.y>0 && e.y<H*0.7){ enemyShoot(e); e.fireCd=e.type==='tank'?120:rnd(120,220); }
+    if(e.fireCd<=0 && e.y>0 && e.y<H*0.7){ enemyShoot(e); e.fireCd=(e.type==='tank'?120:rnd(120,220))*DIFF().fireCdMul; }
     if(e.y>H+40){ enemies.splice(i,1); combo=0; }
   }
 
@@ -683,9 +846,13 @@ function update(dt){
     }else if(!boss.dead){
       boss.x=W/2+Math.sin(boss.t*0.02)* (W/2-100);
       boss.patternT-=ts*dt;
-      if(boss.patternT<=0){ boss.pattern=(boss.pattern+1)%3; boss.patternT=180; }
+      if(boss.patternT<=0){ boss.pattern=(boss.pattern+1)%boss.patternCount; boss.patternT=180; }
       boss.fireCd-=ts*dt;
-      if(boss.fireCd<=0){ bossShoot(boss); boss.fireCd=boss.pattern===0?40:24; }
+      if(boss.fireCd<=0){
+        bossShoot(boss);
+        const cdTable=[40,24,24,26,58,20]; // ring, aim, sweep, spiral, wall, spark
+        boss.fireCd=(cdTable[boss.pattern]||24)*DIFF().bossFireMul;
+      }
     }
   }
 
@@ -763,7 +930,12 @@ function killBoss(){
   }
   addScore(5000);
   floater('BOSS DOWN +5000','#ffd34e',W/2,H/2,120,34);
-  setTimeout(()=>{ boss=null; endGame(true); },1500);
+  const isFinalStage = stageIndex>=STAGES.length-1;
+  setTimeout(()=>{
+    boss=null;
+    if(isFinalStage) endGame(true);
+    else showStageClear();
+  },1500);
 }
 
 /* ---------------------- 描画 ---------------------- */
@@ -776,6 +948,13 @@ function draw(){
   const grad=ctx.createLinearGradient(0,0,0,H);
   grad.addColorStop(0,'#0a0620'); grad.addColorStop(1,'#05030f');
   ctx.fillStyle=grad; ctx.fillRect(-30,-30,W+60,H+60);
+
+  // ステージごとの色調ティント（面の連続性を色で示す）
+  const stg=STAGES[Math.min(stageIndex,STAGES.length-1)];
+  const tintGrad=ctx.createRadialGradient(W/2,H*0.3,40,W/2,H*0.3,H*0.9);
+  tintGrad.addColorStop(0,`rgba(${stg.tint},0.12)`);
+  tintGrad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=tintGrad; ctx.fillRect(-30,-30,W+60,H+60);
 
   // 遠景グリッド（シンセウェーブの床）
   drawGrid();
@@ -795,7 +974,7 @@ function draw(){
   if(boss) drawBoss();
   drawEnemies();
   drawEnemyBullets();
-  if(state==='play'||state==='pause') drawPlayer();
+  if(state==='play'||state==='pause'||state==='stageClear') drawPlayer();
   drawFloaters();
   ctx.restore();
 
@@ -1134,7 +1313,7 @@ function drawBoss(){
   g.addColorStop(0,'#ff3ea5'); g.addColorStop(1,'#ffd34e');
   ctx.fillStyle=g; ctx.fillRect(bx,by,bw*hp,8);
   ctx.fillStyle='#eaf6ff'; ctx.font='bold 12px monospace';
-  ctx.textAlign='center'; ctx.fillText('VOID CORE',W/2,by-6);
+  ctx.textAlign='center'; ctx.fillText(b.name||'VOID CORE',W/2,by-6);
 }
 
 function drawBullets(){
@@ -1203,6 +1382,15 @@ function drawHUD(){
   neon(()=>ctx.fillText(score.toLocaleString(),18,16),'#22e3ff',10);
   ctx.font='11px monospace'; ctx.fillStyle='#7fb0d8';
   ctx.fillText('SCORE',20,46);
+
+  // ステージ表示
+  ctx.textAlign='right';
+  ctx.font='bold 13px monospace'; ctx.fillStyle='#eaf6ff';
+  neon(()=>ctx.fillText('STAGE '+(stageIndex+1)+' / '+STAGES.length,W-18,16),
+    'rgb('+STAGES[stageIndex].tint+')',10);
+  ctx.font='10px monospace'; ctx.fillStyle='#7fb0d8';
+  ctx.fillText(STAGES[stageIndex].name.replace(/^STAGE \d+ — /,''),W-18,34);
+  ctx.textAlign='left';
 
   // コンボ
   if(combo>1){
