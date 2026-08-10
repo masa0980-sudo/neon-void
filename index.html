@@ -188,20 +188,151 @@ const Sound = (()=>{
     const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1200;
     n.connect(f); f.connect(g); g.connect(master); n.start();
   }
-  // 簡易シンセBGM（アルペジオ）
-  let bgmTimer=null, step=0;
-  const scale=[0,3,7,10,12,10,7,3];
-  function startBGM(){
-    if(!ac||bgmTimer) return;
-    bgmTimer=setInterval(()=>{
-      const base=110*Math.pow(2,(scale[step%scale.length])/12);
-      blip(base,0.22,'sawtooth',0.05);
-      if(step%4===0) blip(base/2,0.3,'triangle',0.05);
-      if(step%8===0) noise(0.12,0.06); // kick-ish
-      step++;
-    },200);
+  // ================== 凝ったシンセウェーブBGM（先読みスケジューラ方式） ==================
+  // 4和音パッド + ローリングベース + ディレイ付きアルペジオリード + キック/スネア/ハイハット
+  // + キックに合わせたサイドチェイン風ダッキングで「うねる」シンセウェーブサウンドを合成する。
+  const BPM=100;
+  const STEP_DUR=60/BPM/4;           // 16分音符の長さ(秒)
+  const SCHEDULE_AHEAD=0.12;         // どれだけ先までスケジュールしておくか(秒)
+  const LOOKAHEAD_MS=25;             // スケジューラの実行間隔(ms)
+  let bgmTimerId=null, nextStepTime=0, currentStep=0;
+  let bgmDelay=null, bgmDelayFeedback=null, bgmDelayWet=null;
+
+  // Aナチュラルマイナー・スケール上の三和音進行（i - VI - III - VII）。数値はAからの半音オフセット。
+  const CHORDS=[
+    {root:0,  tones:[0,3,7]},    // Am
+    {root:8,  tones:[8,12,15]},  // F
+    {root:3,  tones:[3,7,10]},   // C
+    {root:10, tones:[10,14,17]}, // G
+  ];
+  const noteFreq=(semi,oct=0)=>110*Math.pow(2,(semi+12*oct)/12);
+
+  function setupBus(){
+    if(bgmDelay) return;
+    bgmDelay=ac.createDelay(1.0); bgmDelay.delayTime.value=STEP_DUR*3;
+    bgmDelayFeedback=ac.createGain(); bgmDelayFeedback.gain.value=0.32;
+    bgmDelayWet=ac.createGain(); bgmDelayWet.gain.value=0.22;
+    bgmDelay.connect(bgmDelayFeedback); bgmDelayFeedback.connect(bgmDelay);
+    bgmDelay.connect(bgmDelayWet); bgmDelayWet.connect(master);
   }
-  function stopBGM(){ if(bgmTimer){clearInterval(bgmTimer);bgmTimer=null;} }
+
+  function synthNote(freq,t,dur,type,vol,filterFreq,toDelay){
+    const o=ac.createOscillator(), g=ac.createGain(), f=ac.createBiquadFilter();
+    o.type=type; o.frequency.setValueAtTime(freq,t);
+    f.type='lowpass'; f.frequency.value=filterFreq||4000;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(f); f.connect(g); g.connect(master);
+    if(toDelay) g.connect(bgmDelay);
+    o.start(t); o.stop(t+dur+0.05);
+  }
+
+  function padChord(tones,t,dur){
+    const pg=ac.createGain(), pf=ac.createBiquadFilter();
+    pf.type='lowpass'; pf.frequency.setValueAtTime(800,t);
+    pf.frequency.linearRampToValueAtTime(1700,t+dur*0.5);
+    pf.frequency.linearRampToValueAtTime(650,t+dur);
+    pg.gain.setValueAtTime(0.0001,t);
+    pg.gain.linearRampToValueAtTime(0.05,t+dur*0.3);
+    pg.gain.linearRampToValueAtTime(0.0001,t+dur);
+    pf.connect(pg); pg.connect(master);
+    tones.forEach(semi=>{
+      const o=ac.createOscillator();
+      o.type='sawtooth'; o.frequency.value=noteFreq(semi,0);
+      o.connect(pf); o.start(t); o.stop(t+dur+0.05);
+    });
+  }
+
+  function duck(t){
+    // キックに合わせてマスターを一瞬凹ませ戻す「サイドチェイン」風のうねり
+    if(!master) return;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(0.28,t);
+    master.gain.linearRampToValueAtTime(0.15,t+0.02);
+    master.gain.linearRampToValueAtTime(0.28,t+0.22);
+  }
+  function kickDrum(t){
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(140,t);
+    o.frequency.exponentialRampToValueAtTime(40,t+0.16);
+    g.gain.setValueAtTime(0.5,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.22);
+    duck(t);
+  }
+  function snareDrum(t){
+    const buf=ac.createBuffer(1,Math.max(1,ac.sampleRate*0.18),ac.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
+    const n=ac.createBufferSource(); n.buffer=buf;
+    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=1500;
+    const g=ac.createGain(); g.gain.setValueAtTime(0.32,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+    const o=ac.createOscillator(); o.type='triangle'; o.frequency.value=190;
+    const og=ac.createGain(); og.gain.setValueAtTime(0.14,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+    o.connect(og); og.connect(master); o.start(t); o.stop(t+0.12);
+  }
+  function hihat(t,open=false){
+    const dur=open?0.22:0.045;
+    const buf=ac.createBuffer(1,Math.max(1,ac.sampleRate*dur),ac.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    const n=ac.createBufferSource(); n.buffer=buf;
+    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
+    const g=ac.createGain(); g.gain.setValueAtTime(open?0.09:0.06,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+  }
+
+  // ローリングベース：拍(キック)に重ねてルート/5度/オクターブを跳躍させる定番シンセウェーブパターン
+  const BASS_STEPS=[0,null,null,null,7,null,null,null,0,null,12,null,7,null,null,null];
+  const ARP_STEPS=[2,6,10,14];
+
+  function scheduleStep(stepIdx,t){
+    const chord=CHORDS[Math.floor(stepIdx/16)%CHORDS.length];
+    const s=stepIdx%16;
+    const bossFight = typeof boss!=='undefined' && !!boss; // ボス戦は少しだけ密度を上げる
+
+    // ドラム
+    if(s%4===0) kickDrum(t);
+    if(s===4||s===12) snareDrum(t);
+    if(bossFight){ hihat(t,s%4===2); }
+    else if(s%2===0) hihat(t,false); else if(Math.random()<0.3) hihat(t,true);
+
+    // ベース
+    const bOff=BASS_STEPS[s];
+    if(bOff!==null) synthNote(noteFreq(chord.root+bOff,-2),t,STEP_DUR*3.4,'sawtooth',0.17,850,false);
+
+    // パッド（各バーの頭で発音・持続）
+    if(s===0) padChord(chord.tones,t,STEP_DUR*16*0.98);
+
+    // アルペジオ・リード（オフビート・ディレイ付き）
+    if(ARP_STEPS.includes(s)){
+      const idx=(Math.floor(stepIdx/2))%chord.tones.length;
+      synthNote(noteFreq(chord.tones[idx],1),t,STEP_DUR*1.1,'square',0.09,2600,true);
+    }
+  }
+
+  function schedulerLoop(){
+    while(nextStepTime<ac.currentTime+SCHEDULE_AHEAD){
+      scheduleStep(currentStep,nextStepTime);
+      nextStepTime+=STEP_DUR;
+      currentStep++;
+    }
+  }
+
+  function startBGM(){
+    if(!ac||bgmTimerId) return;
+    setupBus();
+    currentStep=0; nextStepTime=ac.currentTime+0.05;
+    master.gain.cancelScheduledValues(ac.currentTime);
+    master.gain.setValueAtTime(0.28,ac.currentTime);
+    bgmTimerId=setInterval(schedulerLoop,LOOKAHEAD_MS);
+  }
+  function stopBGM(){
+    if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; }
+    if(master&&ac){ master.gain.cancelScheduledValues(ac.currentTime); master.gain.setTargetAtTime(0.28,ac.currentTime,0.05); }
+  }
   return {
     ensure,
     shot:()=>blip(880,0.06,'square',0.12,-300),
@@ -699,31 +830,114 @@ function neon(fn,color,blur=16){
 function drawPlayer(){
   const p=player;
   const flick = p.invuln>0 && Math.floor(p.invuln/4)%2===0;
-  if(flick){ /* 点滅で半透明 */ ctx.globalAlpha=0.4; }
-  // スラスター炎
-  const fl=6+Math.sin(p.thruster*0.6)*3;
+  if(flick){ ctx.globalAlpha=0.4; }
+  ctx.save(); ctx.translate(p.x,p.y);
+
+  // --- デュアルスラスター炎（脈動＋二重コア） ---
+  const fl=5+Math.sin(p.thruster*0.6)*2.6;
+  const fl2=4+Math.sin(p.thruster*0.6+1.4)*2;
+  for(const side of [-1,1]){
+    const ex=side*9;
+    neon(()=>{
+      const g=ctx.createLinearGradient(ex,10,ex,26+fl);
+      g.addColorStop(0,'#fff6c8'); g.addColorStop(0.4,'#ff3ea5'); g.addColorStop(1,'rgba(255,62,165,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath();
+      ctx.moveTo(ex-4,11); ctx.lineTo(ex,20+fl); ctx.lineTo(ex+4,11);
+      ctx.closePath(); ctx.fill();
+    },'#ff3ea5',18);
+  }
+  // 中央メインスラスター
   neon(()=>{
-    ctx.fillStyle='#ff3ea5';
+    const g=ctx.createLinearGradient(0,8,0,24+fl2);
+    g.addColorStop(0,'#eaf6ff'); g.addColorStop(0.35,'#22e3ff'); g.addColorStop(1,'rgba(34,227,255,0)');
+    ctx.fillStyle=g;
     ctx.beginPath();
-    ctx.moveTo(p.x-6,p.y+12); ctx.lineTo(p.x,p.y+20+fl); ctx.lineTo(p.x+6,p.y+12);
+    ctx.moveTo(-5,8); ctx.lineTo(0,18+fl2); ctx.lineTo(5,8);
     ctx.closePath(); ctx.fill();
-  },'#ff3ea5',20);
-  // 機体（三角＋コア）
+  },'#22e3ff',16);
+
+  // --- 機体本体（多角形フォルム＋グラデ塗り＋パネルライン） ---
   neon(()=>{
-    ctx.fillStyle='#eaf6ff';
+    const hull=ctx.createLinearGradient(0,-20,0,14);
+    hull.addColorStop(0,'#eaf6ff'); hull.addColorStop(0.5,'#bcd6ee'); hull.addColorStop(1,'#7f9fc4');
+    ctx.fillStyle=hull;
     ctx.beginPath();
-    ctx.moveTo(p.x,p.y-18);
-    ctx.lineTo(p.x-15,p.y+14);
-    ctx.lineTo(p.x,p.y+6);
-    ctx.lineTo(p.x+15,p.y+14);
+    ctx.moveTo(0,-20);        // ノーズ
+    ctx.lineTo(4,-6);
+    ctx.lineTo(18,3);         // 右翼端
+    ctx.lineTo(20,11);
+    ctx.lineTo(9,9);
+    ctx.lineTo(4,15);
+    ctx.lineTo(0,11);
+    ctx.lineTo(-4,15);
+    ctx.lineTo(-9,9);
+    ctx.lineTo(-20,11);
+    ctx.lineTo(-18,3);        // 左翼端
+    ctx.lineTo(-4,-6);
     ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#22e3ff';
-    ctx.beginPath(); ctx.arc(p.x,p.y-2,5,0,7); ctx.fill();
-  },'#22e3ff',18);
+    ctx.strokeStyle='rgba(10,20,40,0.5)'; ctx.lineWidth=1;
+    ctx.stroke();
+  },'#22e3ff',20);
+
+  // 翼のアクセントライン
+  ctx.strokeStyle='#a970ff'; ctx.lineWidth=1.4;
+  neon(()=>{
+    ctx.beginPath();
+    ctx.moveTo(4,-4); ctx.lineTo(17,4);
+    ctx.moveTo(-4,-4); ctx.lineTo(-17,4);
+    ctx.stroke();
+  },'#a970ff',10);
+
+  // ウィングチップライト（左右）
+  for(const side of [-1,1]){
+    neon(()=>{
+      ctx.fillStyle=side>0?'#ff3ea5':'#22e3ff';
+      ctx.beginPath(); ctx.arc(side*19,7,2,0,7); ctx.fill();
+    },side>0?'#ff3ea5':'#22e3ff',10);
+  }
+  // 武器レベルに応じたサイドポッド（Lv2以上で点灯）
+  if(p.level>=2){
+    for(const side of [-1,1]){
+      neon(()=>{
+        ctx.fillStyle='#ffd34e';
+        ctx.beginPath(); ctx.arc(side*9,9,2.4,0,7); ctx.fill();
+      },'#ffd34e',12);
+    }
+  }
+  if(p.level>=4){
+    for(const side of [-1,1]){
+      neon(()=>{
+        ctx.fillStyle='#ffd34e';
+        ctx.beginPath(); ctx.arc(side*14,10,1.8,0,7); ctx.fill();
+      },'#ffd34e',10);
+    }
+  }
+
+  // コックピット（放射グラデの発光コア）
+  neon(()=>{
+    const cg=ctx.createRadialGradient(0,-4,0.5,0,-2,6);
+    cg.addColorStop(0,'#ffffff'); cg.addColorStop(0.4,'#22e3ff'); cg.addColorStop(1,'rgba(34,227,255,0)');
+    ctx.fillStyle=cg;
+    ctx.beginPath(); ctx.arc(0,-2,6,0,7); ctx.fill();
+  },'#22e3ff',22);
+  neon(()=>{
+    ctx.fillStyle='#0a1428';
+    ctx.beginPath(); ctx.ellipse(0,-4,2.6,3.6,0,0,7); ctx.fill();
+  },'#22e3ff',4);
+
+  ctx.restore();
+
   // シールド
   if(p.shield){
     ctx.strokeStyle='rgba(34,227,255,0.8)'; ctx.lineWidth=2.5;
-    neon(()=>{ ctx.beginPath(); ctx.arc(p.x,p.y,p.r+12,0,7); ctx.stroke(); },'#22e3ff',18);
+    neon(()=>{
+      ctx.save(); ctx.translate(p.x,p.y);
+      ctx.beginPath(); ctx.arc(0,0,p.r+12,0,7); ctx.stroke();
+      ctx.strokeStyle='rgba(169,112,255,0.5)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(0,0,p.r+16,performance.now()*0.002,performance.now()*0.002+4.6); ctx.stroke();
+      ctx.restore();
+    },'#22e3ff',18);
   }
   ctx.globalAlpha=1;
 }
@@ -732,25 +946,118 @@ function drawEnemies(){
   for(const e of enemies){
     const c = e.hit>0?'#ffffff':e.color;
     ctx.save(); ctx.translate(e.x,e.y);
-    neon(()=>{
-      ctx.fillStyle=c; ctx.strokeStyle=c; ctx.lineWidth=2;
-      if(e.type==='drone'){
-        ctx.rotate(e.t*0.05);
+
+    if(e.type==='drone'){
+      // 昆虫型ドローン：分割装甲ボディ＋発光アイ＋羽ばたく2枚羽
+      const wingFlap=Math.sin(e.t*0.35)*0.5+0.55;
+      neon(()=>{
+        ctx.save(); ctx.rotate(Math.sin(e.t*0.05+e.phase)*0.3);
+        ctx.fillStyle='rgba(34,227,255,0.35)';
+        for(const side of [-1,1]){
+          ctx.save(); ctx.scale(side,1);
+          ctx.beginPath();
+          ctx.moveTo(4,-2);
+          ctx.quadraticCurveTo(e.r*1.5, -e.r*1.3*wingFlap, e.r*1.8, -e.r*0.3);
+          ctx.quadraticCurveTo(e.r*1.0, e.r*0.2, 4,4);
+          ctx.closePath(); ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      },e.color,10);
+      neon(()=>{
+        ctx.rotate(e.t*0.06);
+        ctx.fillStyle=c;
         ctx.beginPath();
-        for(let i=0;i<3;i++){const a=i*2.094;ctx.lineTo(Math.cos(a)*e.r,Math.sin(a)*e.r);}
+        for(let i=0;i<3;i++){const a=i*2.094;ctx.lineTo(Math.cos(a)*e.r,Math.sin(a)*e.r*0.92);}
         ctx.closePath(); ctx.fill();
-      }else if(e.type==='weaver'){
-        ctx.rotate(Math.PI/4+e.t*0.03);
-        ctx.fillRect(-e.r*0.7,-e.r*0.7,e.r*1.4,e.r*1.4);
-        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,4,0,7); ctx.fill();
-      }else{ // tank
+        ctx.strokeStyle='rgba(10,20,40,0.6)'; ctx.lineWidth=1; ctx.stroke();
+        // 中央の節目ライン
+        ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=0.8;
+        ctx.beginPath(); ctx.moveTo(0,-e.r*0.8); ctx.lineTo(0,e.r*0.6); ctx.stroke();
+      },e.color,12);
+      // 発光アイ（自機を睨む）
+      neon(()=>{
+        const ang=Math.atan2(player.y-e.y,player.x-e.x);
+        const eg=ctx.createRadialGradient(0,e.r*0.05,0,0,e.r*0.05,4);
+        eg.addColorStop(0,'#ffffff'); eg.addColorStop(0.5,'#fff'); eg.addColorStop(1,'rgba(255,255,255,0)');
+        ctx.fillStyle=eg;
+        ctx.beginPath(); ctx.arc(0,e.r*0.05,3.6,0,7); ctx.fill();
+        ctx.fillStyle='#05030f';
+        ctx.beginPath(); ctx.arc(Math.cos(ang)*1.2,e.r*0.05+Math.sin(ang)*1.2,1.3,0,7); ctx.fill();
+      },'#fff',14);
+
+    }else if(e.type==='weaver'){
+      // 回転ブレード×3＋菱形コア（宝石グラデ）
+      ctx.save(); ctx.rotate(-e.t*0.09);
+      neon(()=>{
+        ctx.fillStyle='rgba(169,112,255,0.55)'; ctx.strokeStyle=e.color; ctx.lineWidth=1;
+        for(let i=0;i<3;i++){
+          ctx.save(); ctx.rotate(i*2.094);
+          ctx.beginPath();
+          ctx.moveTo(0,-3);
+          ctx.lineTo(e.r*1.7,-2.5);
+          ctx.lineTo(e.r*1.9,0);
+          ctx.lineTo(e.r*1.7,2.5);
+          ctx.closePath(); ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+      },e.color,10);
+      ctx.restore();
+      neon(()=>{
+        ctx.save(); ctx.rotate(Math.PI/4+e.t*0.03);
+        const g=ctx.createLinearGradient(-e.r*0.7,-e.r*0.7,e.r*0.7,e.r*0.7);
+        g.addColorStop(0,'#eaccff'); g.addColorStop(0.5,c); g.addColorStop(1,'#5a2ea0');
+        ctx.fillStyle=g;
+        ctx.fillRect(-e.r*0.68,-e.r*0.68,e.r*1.36,e.r*1.36);
+        ctx.strokeStyle='rgba(10,0,30,0.5)'; ctx.lineWidth=1;
+        ctx.strokeRect(-e.r*0.68,-e.r*0.68,e.r*1.36,e.r*1.36);
+        ctx.restore();
+      },e.color,14);
+      neon(()=>{
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.arc(0,0,3.6,0,7); ctx.fill();
+      },'#fff',14);
+
+    }else{ // tank
+      // 六角重装甲＋4方向砲台＋放熱フィン
+      neon(()=>{
+        ctx.save(); ctx.rotate(e.t*0.008);
+        ctx.fillStyle='rgba(255,62,165,0.18)';
+        for(let i=0;i<6;i++){
+          ctx.save(); ctx.rotate(i*1.047+0.52);
+          ctx.fillRect(-2.5,e.r*0.55,5,e.r*0.55);
+          ctx.restore();
+        }
+        ctx.restore();
+      },e.color,8);
+      neon(()=>{
+        const g=ctx.createRadialGradient(0,0,e.r*0.2,0,0,e.r);
+        g.addColorStop(0,'#fff2f8'); g.addColorStop(0.55,c); g.addColorStop(1,'#7a1748');
+        ctx.fillStyle=g;
         ctx.beginPath();
         for(let i=0;i<6;i++){const a=i*1.047+e.t*0.01;ctx.lineTo(Math.cos(a)*e.r,Math.sin(a)*e.r);}
         ctx.closePath(); ctx.fill();
-        ctx.fillStyle='#05030f'; ctx.beginPath(); ctx.arc(0,0,e.r*0.5,0,7); ctx.fill();
-        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(0,0,e.r*0.28,0,7); ctx.fill();
-      }
-    },e.color,14);
+        ctx.strokeStyle='rgba(10,0,20,0.55)'; ctx.lineWidth=1.4; ctx.stroke();
+      },e.color,16);
+      // 4方向の砲台
+      neon(()=>{
+        ctx.fillStyle='#2a1030';
+        for(let i=0;i<4;i++){
+          ctx.save(); ctx.rotate(i*1.5708+e.t*0.006);
+          ctx.fillRect(-2.6,e.r*0.55,5.2,9);
+          ctx.fillStyle='#ffd34e';
+          ctx.beginPath(); ctx.arc(0,e.r*0.55+9,1.8,0,7); ctx.fill();
+          ctx.fillStyle='#2a1030';
+          ctx.restore();
+        }
+      },'#ffd34e',10);
+      neon(()=>{
+        ctx.fillStyle='#05030f'; ctx.beginPath(); ctx.arc(0,0,e.r*0.48,0,7); ctx.fill();
+        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(0,0,e.r*0.26,0,7); ctx.fill();
+        ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.arc(0,0,e.r*0.26,e.t*0.03,e.t*0.03+2.4); ctx.stroke();
+      },e.color,14);
+    }
     ctx.restore();
   }
 }
@@ -759,20 +1066,65 @@ function drawBoss(){
   const b=boss;
   ctx.save(); ctx.translate(b.x,b.y);
   const c=b.hit>0?'#fff':b.color;
+
+  // 外周衛星パーツ（ゆっくり公転）
   neon(()=>{
-    // コア本体
-    ctx.fillStyle=c;
+    for(let i=0;i<5;i++){
+      const a=b.t*0.012+i*(Math.PI*2/5);
+      const sx=Math.cos(a)*b.r*1.35, sy=Math.sin(a)*b.r*1.35;
+      ctx.save(); ctx.translate(sx,sy); ctx.rotate(a+Math.PI/2);
+      ctx.fillStyle='#a970ff';
+      ctx.beginPath();
+      ctx.moveTo(0,-9); ctx.lineTo(6,6); ctx.lineTo(-6,6);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  },'#a970ff',14);
+
+  // 外殻リング×2（逆回転）
+  neon(()=>{
+    ctx.strokeStyle='rgba(255,143,208,0.55)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(0,0,b.r*1.14,b.t*0.01,b.t*0.01+4.2); ctx.stroke();
+    ctx.strokeStyle='rgba(34,227,255,0.5)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(0,0,b.r*1.22,-b.t*0.016,-b.t*0.016+3.1); ctx.stroke();
+  },'#ff8fd0',18);
+
+  neon(()=>{
+    // 装甲外殻（放射グラデ・棘状多角形）
+    const shell=ctx.createRadialGradient(0,-b.r*0.3,b.r*0.2,0,0,b.r);
+    shell.addColorStop(0,'#fff2f8'); shell.addColorStop(0.5,c); shell.addColorStop(1,'#5a0f34');
+    ctx.fillStyle=shell;
     ctx.beginPath();
-    for(let i=0;i<8;i++){const a=i*0.785+b.t*0.008;const rr=b.r*(i%2?0.72:1);
+    for(let i=0;i<10;i++){const a=i*0.6283+b.t*0.006;const rr=b.r*(i%2?0.7:1);
       ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}
     ctx.closePath(); ctx.fill();
-    ctx.fillStyle='#05030f'; ctx.beginPath(); ctx.arc(0,0,b.r*0.55,0,7); ctx.fill();
-    // 回転コア
-    ctx.fillStyle='#ffd34e'; ctx.rotate(-b.t*0.03);
-    for(let i=0;i<3;i++){ctx.rotate(2.094);
-      ctx.fillRect(-4,-b.r*0.45,8,b.r*0.35);}
-    ctx.beginPath(); ctx.arc(0,0,b.r*0.22,0,7); ctx.fillStyle='#22e3ff'; ctx.fill();
-  },b.color,26);
+    ctx.strokeStyle='rgba(20,0,15,0.6)'; ctx.lineWidth=2; ctx.stroke();
+
+    // 内殻の窪み
+    ctx.fillStyle='#05030f'; ctx.beginPath(); ctx.arc(0,0,b.r*0.6,0,7); ctx.fill();
+    ctx.strokeStyle='rgba(255,143,208,0.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(0,0,b.r*0.6,0,7); ctx.stroke();
+
+    // 回転する3枚羽根（機械パーツ感）
+    ctx.save(); ctx.rotate(-b.t*0.03);
+    for(let i=0;i<3;i++){
+      ctx.rotate(2.094);
+      const bg=ctx.createLinearGradient(0,-b.r*0.45,0,-b.r*0.1);
+      bg.addColorStop(0,'#ffd34e'); bg.addColorStop(1,'#a8650a');
+      ctx.fillStyle=bg;
+      ctx.beginPath();
+      ctx.moveTo(-5,-b.r*0.1); ctx.lineTo(-3,-b.r*0.45); ctx.lineTo(3,-b.r*0.45); ctx.lineTo(5,-b.r*0.1);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+
+    // 発光コア（脈動）
+    const pulse=0.85+Math.sin(b.t*0.08)*0.15;
+    const cg=ctx.createRadialGradient(0,0,0,0,0,b.r*0.22*pulse);
+    cg.addColorStop(0,'#ffffff'); cg.addColorStop(0.5,'#22e3ff'); cg.addColorStop(1,'rgba(34,227,255,0.1)');
+    ctx.fillStyle=cg;
+    ctx.beginPath(); ctx.arc(0,0,b.r*0.22*pulse,0,7); ctx.fill();
+  },b.color,28);
   ctx.restore();
   // HPバー
   const bw=W*0.7, bx=(W-bw)/2, by=26;
