@@ -197,10 +197,18 @@ addEventListener('pointerup',()=>{ pointer=null; keys.fire=false; });
 const Sound = (()=>{
   let ac=null, master=null;
   function ensure(){
-    if(ac) return;
-    ac = new (window.AudioContext||window.webkitAudioContext)();
-    master = ac.createGain(); master.gain.value=0.28; master.connect(ac.destination);
+    if(!ac){
+      ac = new (window.AudioContext||window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value=0.28; master.connect(ac.destination);
+    }
+    // モバイル（特にAndroid Chrome）は自動再生ポリシーによりAudioContextが
+    // "suspended" のまま生成される。ユーザー操作の呼び出しスタック内で必ずresume()する。
+    if(ac.state==='suspended') ac.resume();
   }
+  // タブが再びアクティブになった際にもcontextが止まったままになることがあるため復帰させる
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible' && ac && ac.state==='suspended') ac.resume();
+  });
   function blip(freq,dur,type='square',vol=0.3,slide=0){
     if(!ac) return;
     const o=ac.createOscillator(), g=ac.createGain();
@@ -386,6 +394,7 @@ const Sound = (()=>{
   function startBGM(stageIdx){
     if(typeof stageIdx==='number') trackIndex=clamp(stageIdx,0,STAGE_TRACKS.length-1);
     if(!ac) return;
+    if(ac.state==='suspended') ac.resume(); // ポーズ復帰・ステージ切替時の保険
     stepDur=60/STAGE_TRACKS[trackIndex].bpm/4;
     if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; } // トラック切替時は張り直す
     setupBus();
@@ -670,6 +679,15 @@ function togglePause(){
   if(state==='play'){ state='pause'; pauseScreen.classList.remove('hidden'); Sound.stopBGM(); }
   else if(state==='pause'){ state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM(); }
 }
+
+// タブがバックグラウンドになった／ブラウザを閉じた際は自動でポーズしてBGMを止める。
+// （タブを閉じればJS自体が終了しBGMも止まるが、ホームに戻る・アプリ切替のような
+//   「閉じていないが見えなくなった」状態でもバックグラウンド再生を防ぐための対策）
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden' && state==='play') togglePause();
+});
+addEventListener('pagehide',()=>{ Sound.stopBGM(); });
+
 document.getElementById('startBtn').onclick=startGame;
 document.getElementById('retryBtn').onclick=startGame;
 document.getElementById('continueBtn').onclick=nextStage;
