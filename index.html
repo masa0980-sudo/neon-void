@@ -229,58 +229,81 @@ const Sound = (()=>{
     const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1200;
     n.connect(f); f.connect(g); g.connect(master); n.start();
   }
-  // ================== 凝ったシンセウェーブBGM（先読みスケジューラ方式） ==================
-  // 4和音パッド + ローリングベース + ディレイ付きアルペジオリード + キック/スネア/ハイハット
-  // + キックに合わせたサイドチェイン風ダッキングで「うねる」シンセウェーブサウンドを合成する。
-  // ステージごとに BPM・コード進行・リード音色・密度(intensity) を切り替え、奥に進むほど
-  // 楽曲が張り詰めていく構成にする。
+  // ================== ステージ別に「別の曲」となるBGMエンジン（先読みスケジューラ方式） ==================
+  // 1面=快活なチップチューン、2面=不穏で静かなドローン曲、3面=歪んだ攻撃的な曲、と
+  // テンポ・和声だけでなく楽器編成そのものを面ごとに変える。特定曲の引用ではなく
+  // 各ジャンルのスタイルをオリジナル作曲したもの。
   const SCHEDULE_AHEAD=0.12;         // どれだけ先までスケジュールしておくか(秒)
   const LOOKAHEAD_MS=25;             // スケジューラの実行間隔(ms)
-  let bgmTimerId=null, nextStepTime=0, currentStep=0, stepDur=60/100/4;
+  let bgmTimerId=null, nextStepTime=0, currentStep=0, stepDur=60/148/4;
   let bgmDelay=null, bgmDelayFeedback=null, bgmDelayWet=null;
   let trackIndex=0;
 
   // 半音オフセットはAを基準(0)としたAナチュラルマイナー・スケール上の値。
+  // riff の数値は度数インデックス(0=root,1=3rd,2=5th,3=root+oct,4=5th+oct / null=休符)。
+  // bass の数値は度数インデックス(0=root,1=root+oct,2=5th / null=休符)、低音オクターブで鳴る。
   const STAGE_TRACKS=[
-    { // Stage1 NEON CITY: i-VI-III-VII の王道進行、落ち着いたテンポ
-      bpm:100, leadType:'square', intensity:1,
+    { // Stage1 NEON CITY: style="bright" — 快活・王道の疾走チップチューン
+      style:'bright', bpm:148, delayFeedback:0.28, delayWet:0.16,
       chords:[
         {root:0,  tones:[0,3,7]},    // Am
         {root:8,  tones:[8,12,15]},  // F
         {root:3,  tones:[3,7,10]},   // C
         {root:10, tones:[10,14,17]}, // G
-      ]
+      ],
+      riff:[0,2,1,2, 3,2,1,null, 0,2,1,2, 3,2,4,null],
+      bass:[0,null,1,null, 0,null,2,null, 0,null,1,null, 0,null,2,null],
     },
-    { // Stage2 SIGNAL DEPTHS: i-iv-VII-III、少し速く・不穏に沈んでいく進行
-      bpm:108, leadType:'square', intensity:1.3,
+    { // Stage2 SIGNAL DEPTHS: style="dark" — 静かで不穏なドローン主体のアンビエント曲
+      style:'dark', bpm:88, delayFeedback:0.48, delayWet:0.34,
       chords:[
         {root:0,  tones:[0,3,7]},    // Am
         {root:5,  tones:[5,8,12]},   // Dm
         {root:10, tones:[10,14,17]}, // G
         {root:3,  tones:[3,7,10]},   // C
-      ]
+      ],
+      riff:[null,null,3,null, null,2,null,null, null,null,1,null, null,4,null,null],
+      bass:[0], // 1小節に1回、ルート音のドローンを伸ばす
     },
-    { // Stage3 VOID CORE: i-V(長3度に変化させた緊張感)-VI-V、速いテンポで攻める
-      bpm:120, leadType:'sawtooth', intensity:1.7,
+    { // Stage3 VOID CORE: style="aggressive" — 歪んだリードで攻め続ける最速トラック
+      style:'aggressive', bpm:176, delayFeedback:0.22, delayWet:0.14,
       chords:[
         {root:0,  tones:[0,3,7]},    // Am
         {root:7,  tones:[7,11,14]},  // E(メジャー・緊張感)
         {root:8,  tones:[8,12,15]},  // F
         {root:7,  tones:[7,11,14]},  // E
-      ]
+      ],
+      riff:[4,3,2,1, 2,3,4,3, 4,3,2,1, 2,3,4,2],
+      bass:[0,1,0,1, 0,2,0,1, 0,1,0,1, 0,2,0,1],
     },
   ];
   const noteFreq=(semi,oct=0)=>110*Math.pow(2,(semi+12*oct)/12);
+  function extTone(chord,deg){ // 度数インデックス→半音オフセット
+    if(deg===3) return chord.tones[0]+12;
+    if(deg===4) return chord.tones[2]+12;
+    return chord.tones[deg];
+  }
+
+  // 波形を歪ませるカーブ（3面の攻撃的なリード用）。一度だけ計算して使い回す。
+  function makeDistortionCurve(amount){
+    const n=4096, curve=new Float32Array(n);
+    for(let i=0;i<n;i++){ const x=i*2/n-1; curve[i]=(3+amount)*x*20*(Math.PI/180)/(Math.PI+amount*Math.abs(x)); }
+    return curve;
+  }
+  const DIST_CURVE=makeDistortionCurve(30);
 
   function setupBus(){
     if(!bgmDelay){
       bgmDelay=ac.createDelay(1.0);
-      bgmDelayFeedback=ac.createGain(); bgmDelayFeedback.gain.value=0.32;
-      bgmDelayWet=ac.createGain(); bgmDelayWet.gain.value=0.22;
+      bgmDelayFeedback=ac.createGain();
+      bgmDelayWet=ac.createGain();
       bgmDelay.connect(bgmDelayFeedback); bgmDelayFeedback.connect(bgmDelay);
       bgmDelay.connect(bgmDelayWet); bgmDelayWet.connect(master);
     }
+    const track=STAGE_TRACKS[trackIndex];
     bgmDelay.delayTime.value=stepDur*3;
+    bgmDelayFeedback.gain.value=track.delayFeedback;
+    bgmDelayWet.gain.value=track.delayWet;
   }
 
   function synthNote(freq,t,dur,type,vol,filterFreq,toDelay){
@@ -295,50 +318,122 @@ const Sound = (()=>{
     o.start(t); o.stop(t+dur+0.05);
   }
 
-  function padChord(tones,t,dur){
+  // 1面用リード：わずかにデチューンした2発振をユニゾンさせ、PSG(往年のチップ)風の
+  // 太い矩形波リードにする。減衰を速くして「走る」歯切れの良さを出す。
+  function leadNote(freq,t,dur){
+    const g=ac.createGain(), f=ac.createBiquadFilter();
+    f.type='lowpass'; f.frequency.value=3400;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.11,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    f.connect(g); g.connect(master); g.connect(bgmDelay);
+    [0,-9].forEach(cents=>{
+      const o=ac.createOscillator();
+      o.type='square'; o.frequency.value=freq; o.detune.value=cents;
+      o.connect(f); o.start(t); o.stop(t+dur+0.05);
+    });
+  }
+
+  // 1面用：短くパンチの効いたコード打ち（アーケード曲らしい歯切れの良さ）
+  function stabChord(tones,t,dur){
     const pg=ac.createGain(), pf=ac.createBiquadFilter();
-    pf.type='lowpass'; pf.frequency.setValueAtTime(800,t);
-    pf.frequency.linearRampToValueAtTime(1700,t+dur*0.5);
-    pf.frequency.linearRampToValueAtTime(650,t+dur);
+    pf.type='lowpass'; pf.frequency.setValueAtTime(2400,t);
+    pf.frequency.exponentialRampToValueAtTime(500,t+dur);
     pg.gain.setValueAtTime(0.0001,t);
-    pg.gain.linearRampToValueAtTime(0.05,t+dur*0.3);
-    pg.gain.linearRampToValueAtTime(0.0001,t+dur);
+    pg.gain.linearRampToValueAtTime(0.15,t+0.008);
+    pg.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     pf.connect(pg); pg.connect(master);
     tones.forEach(semi=>{
       const o=ac.createOscillator();
-      o.type='sawtooth'; o.frequency.value=noteFreq(semi,0);
+      o.type='square'; o.frequency.value=noteFreq(semi,0);
       o.connect(pf); o.start(t); o.stop(t+dur+0.05);
     });
   }
 
-  function duck(t){
+  // 2面用：ゆっくり明滅するサブベース・ドローン（LFOで周波数を微妙に揺らし不穏さを出す）
+  function subDrone(freq,t,dur){
+    const o=ac.createOscillator(), g=ac.createGain();
+    const lfo=ac.createOscillator(), lfoGain=ac.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(freq,t);
+    lfo.type='sine'; lfo.frequency.value=0.12;
+    lfoGain.gain.value=2.4;
+    lfo.connect(lfoGain); lfoGain.connect(o.frequency);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(0.24,t+dur*0.35);
+    g.gain.linearRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(master);
+    o.start(t); lfo.start(t); o.stop(t+dur+0.05); lfo.stop(t+dur+0.05);
+  }
+
+  // 2面用：三角波のベルのような、間を活かしたリード。ディレイを深くかけて空間の広さを出す
+  function bellLead(freq,t,dur){
+    const o=ac.createOscillator(), g=ac.createGain(), f=ac.createBiquadFilter();
+    o.type='triangle'; o.frequency.setValueAtTime(freq,t);
+    f.type='lowpass'; f.frequency.value=2200;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.15,t+0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(f); f.connect(g); g.connect(master); g.connect(bgmDelay);
+    o.start(t); o.stop(t+dur+0.05);
+  }
+
+  // 2面用：フィルターを通したノイズの「風」。息をひそめるような気配を薄く敷く
+  function windSwell(t,dur,freq){
+    const buf=ac.createBuffer(1,Math.max(1,Math.floor(ac.sampleRate*dur)),ac.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    const n=ac.createBufferSource(); n.buffer=buf;
+    const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq||500; f.Q.value=0.7;
+    const g=ac.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(0.045,t+dur*0.4);
+    g.gain.linearRampToValueAtTime(0.0001,t+dur);
+    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+  }
+
+  // 3面用：歪ませたのこぎり波リード。攻撃的でざらついた質感を出す
+  function growlLead(freq,t,dur){
+    const o=ac.createOscillator(), sh=ac.createWaveShaper(), f=ac.createBiquadFilter(), g=ac.createGain();
+    o.type='sawtooth'; o.frequency.value=freq;
+    sh.curve=DIST_CURVE; sh.oversample='2x';
+    f.type='lowpass'; f.frequency.value=3800;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.13,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(sh); sh.connect(f); f.connect(g); g.connect(master); g.connect(bgmDelay);
+    o.start(t); o.stop(t+dur+0.05);
+  }
+
+  function duck(t,amount=0.15){
     // キックに合わせてマスターを一瞬凹ませ戻す「サイドチェイン」風のうねり
     if(!master) return;
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(0.28,t);
-    master.gain.linearRampToValueAtTime(0.15,t+0.02);
+    master.gain.linearRampToValueAtTime(amount,t+0.02);
     master.gain.linearRampToValueAtTime(0.28,t+0.22);
   }
-  function kickDrum(t){
+  function kickDrum(t,soft=false){
     const o=ac.createOscillator(), g=ac.createGain();
-    o.type='sine'; o.frequency.setValueAtTime(140,t);
+    o.type='sine'; o.frequency.setValueAtTime(soft?110:140,t);
     o.frequency.exponentialRampToValueAtTime(40,t+0.16);
-    g.gain.setValueAtTime(0.5,t);
+    g.gain.setValueAtTime(soft?0.32:0.5,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
     o.connect(g); g.connect(master); o.start(t); o.stop(t+0.22);
-    duck(t);
+    duck(t,soft?0.2:0.15);
   }
-  function snareDrum(t){
+  function snareDrum(t,soft=false){
     const buf=ac.createBuffer(1,Math.max(1,ac.sampleRate*0.18),ac.sampleRate);
     const d=buf.getChannelData(0);
     for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
     const n=ac.createBufferSource(); n.buffer=buf;
-    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=1500;
-    const g=ac.createGain(); g.gain.setValueAtTime(0.32,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=soft?2200:1500;
+    const g=ac.createGain(); g.gain.setValueAtTime(soft?0.14:0.32,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.15);
     n.connect(f); f.connect(g); g.connect(master); n.start(t);
-    const o=ac.createOscillator(); o.type='triangle'; o.frequency.value=190;
-    const og=ac.createGain(); og.gain.setValueAtTime(0.14,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.1);
-    o.connect(og); og.connect(master); o.start(t); o.stop(t+0.12);
+    if(!soft){
+      const o=ac.createOscillator(); o.type='triangle'; o.frequency.value=190;
+      const og=ac.createGain(); og.gain.setValueAtTime(0.14,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+      o.connect(og); og.connect(master); o.start(t); o.stop(t+0.12);
+    }
   }
   function hihat(t,open=false){
     const dur=open?0.22:0.045;
@@ -351,36 +446,68 @@ const Sound = (()=>{
     n.connect(f); f.connect(g); g.connect(master); n.start(t);
   }
 
-  // ローリングベース：拍(キック)に重ねてルート/5度/オクターブを跳躍させる定番シンセウェーブパターン
-  const BASS_STEPS=[0,null,null,null,7,null,null,null,0,null,12,null,7,null,null,null];
-  const ARP_STEPS=[2,6,10,14];
+  // ---- 1面「bright」：快活に駆け抜けるチップチューン ----
+  function scheduleBright(track,chord,s,t,bossFight){
+    if(s%4===0) kickDrum(t);
+    if(s===4||s===12) snareDrum(t);
+    if(s%2===0) hihat(t,false);
+    if(bossFight && s%2===1) hihat(t,s%4===3);
+
+    const bDeg=track.bass[s];
+    if(bDeg!==null){
+      const semi=chord.root+(bDeg===1?12:bDeg===2?7:0);
+      synthNote(noteFreq(semi,-2),t,stepDur*1.9,'sawtooth',0.19,950,false);
+    }
+    if(s===0||s===8) stabChord(chord.tones,t,stepDur*2.2);
+    const deg=track.riff[s];
+    if(deg!==null) leadNote(noteFreq(extTone(chord,deg),1),t,stepDur*0.92);
+  }
+
+  // ---- 2面「dark」：静かに沈むドローン主体のアンビエント ----
+  function scheduleDark(track,chord,s,t,bossFight){
+    // ハーフタイムの心拍のようなキック。ボス戦のみ少し密度を上げて緊張感を足す
+    if(s===0||s===8) kickDrum(t,true);
+    if(bossFight && s===12) kickDrum(t,true);
+    if(s===12) snareDrum(t,true); // 銃声のような遠いリムショット1発だけ
+    if(s===6||s===14) hihat(t,true); // 開いたハイハットで空気の揺れを表現
+
+    // 1小節の頭だけ、根音を長く伸ばすサブベース・ドローン
+    if(s===0) subDrone(noteFreq(chord.root,-1),t,stepDur*15.5);
+    // 半小節ごとにノイズの「風」を薄く重ねる
+    if(s===0||s===8) windSwell(t,stepDur*8,220+chord.root*8);
+
+    // 間を活かしたベル・リード（ディレイでこだまする）
+    const deg=track.riff[s];
+    if(deg!==null) bellLead(noteFreq(extTone(chord,deg),1),t,stepDur*3.2);
+  }
+
+  // ---- 3面「aggressive」：歪んだリードで攻め続ける ----
+  function scheduleAggressive(track,chord,s,t,bossFight){
+    if(s%4===0) kickDrum(t);
+    if(s===2||s===10) kickDrum(t); // 裏にもキックを足して疾走感を強化
+    if(s===4||s===12) snareDrum(t);
+    if(s%2===0) hihat(t,false);
+    if(s%2===1) hihat(t,s%4===3);
+
+    const bDeg=track.bass[s];
+    if(bDeg!==null){
+      const semi=chord.root+(bDeg===1?12:bDeg===2?7:0);
+      synthNote(noteFreq(semi,-2),t,stepDur*1.9,'sawtooth',0.19,950,false);
+    }
+    if(s%4===0) stabChord(chord.tones,t,stepDur*1.8); // 4分ごとに連打して緊張を切らさない
+    const deg=track.riff[s];
+    if(deg!==null) growlLead(noteFreq(extTone(chord,deg),1),t,stepDur*0.92);
+  }
 
   function scheduleStep(stepIdx,t){
     const track=STAGE_TRACKS[trackIndex];
     const chord=track.chords[Math.floor(stepIdx/16)%track.chords.length];
     const s=stepIdx%16;
     const bossFight = typeof boss!=='undefined' && !!boss; // ボス戦は少しだけ密度を上げる
-    const dense = track.intensity>=1.5; // 最終ステージはドラムを増量してより攻撃的に
 
-    // ドラム
-    if(s%4===0) kickDrum(t);
-    if(dense && (s===6||s===14)) kickDrum(t); // 裏拍にもキックを足してドライブ感を出す
-    if(s===4||s===12) snareDrum(t);
-    if(bossFight||dense){ hihat(t,s%4===2); }
-    else if(s%2===0) hihat(t,false); else if(Math.random()<0.3) hihat(t,true);
-
-    // ベース
-    const bOff=BASS_STEPS[s];
-    if(bOff!==null) synthNote(noteFreq(chord.root+bOff,-2),t,stepDur*3.4,'sawtooth',0.17*Math.min(track.intensity,1.3),850,false);
-
-    // パッド（各バーの頭で発音・持続）
-    if(s===0) padChord(chord.tones,t,stepDur*16*0.98);
-
-    // アルペジオ・リード（オフビート・ディレイ付き。ステージが進むほど音色が鋭くなる）
-    if(ARP_STEPS.includes(s)){
-      const idx=(Math.floor(stepIdx/2))%chord.tones.length;
-      synthNote(noteFreq(chord.tones[idx],1),t,stepDur*1.1,track.leadType,0.09,2600,true);
-    }
+    if(track.style==='dark') scheduleDark(track,chord,s,t,bossFight);
+    else if(track.style==='aggressive') scheduleAggressive(track,chord,s,t,bossFight);
+    else scheduleBright(track,chord,s,t,bossFight);
   }
 
   function schedulerLoop(){
