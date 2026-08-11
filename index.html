@@ -36,6 +36,14 @@
       url('art/keyart.png') center 42%/cover no-repeat,
       radial-gradient(120% 120% at 50% 30%,rgba(12,8,36,.55),rgba(5,3,15,.9) 80%);
   }
+  /* ステージクリア／ミッションクリア画面: JS側で --story-img にfal.ai生成画像を差し込む
+     （読込失敗・未設定時は none になり、元のグラデ背景にフォールバックする） */
+  .storyBg{
+    background:
+      radial-gradient(120% 120% at 50% 42%,rgba(5,3,15,.28) 0%,rgba(5,3,15,.62) 55%,rgba(5,3,15,.95) 100%),
+      var(--story-img, none) center 42%/cover no-repeat,
+      radial-gradient(120% 120% at 50% 30%,rgba(12,8,36,.55),rgba(5,3,15,.9) 80%);
+  }
   .hidden{opacity:0;pointer-events:none;}
   h1{
     font-size:clamp(38px,9vw,86px);letter-spacing:.14em;font-weight:900;
@@ -771,6 +779,15 @@ const stageClearScreen=document.getElementById('stageClearScreen');
 const stageClearTitle=document.getElementById('stageClearTitle');
 const stageStoryText=document.getElementById('stageStoryText');
 
+// クリア画面に fal.ai 生成のイラストを差し込む。画像読込に失敗した場合は
+// storyBg クラスを外し、元のグラデーション背景に自動フォールバックする。
+function setStoryImage(el,src){
+  const img=new Image();
+  img.onload=()=>{ el.style.setProperty('--story-img',`url('${src}')`); el.classList.add('storyBg'); };
+  img.onerror=()=>{ el.classList.remove('storyBg'); };
+  img.src=src;
+}
+
 function startGame(){
   Sound.ensure();
   resetGame();
@@ -792,6 +809,8 @@ function endGame(win){
     `MAX COMBO <span>${maxCombo}</span><br>`+
     `BEST <span>${best.toLocaleString()}</span><br>`+
     `DIFFICULTY <span>${difficulty.toUpperCase()}</span>`;
+  if(win) setStoryImage(endScreen,'art/stage3_clear.png');
+  else endScreen.classList.remove('storyBg');
   endScreen.classList.remove('hidden');
 }
 function showStageClear(){
@@ -800,6 +819,7 @@ function showStageClear(){
   stageClearTitle.textContent='STAGE '+(stageIndex+1)+' CLEAR';
   stageStoryText.innerHTML=finishedStg.clearStory.replace(/\n/g,'<br>')+
     `<br><br><span style="color:var(--gold)">NEXT: ${STAGES[stageIndex+1].name}</span>`;
+  setStoryImage(stageClearScreen,'art/stage'+(stageIndex+1)+'_clear.png');
   stageClearScreen.classList.remove('hidden');
 }
 function togglePause(){
