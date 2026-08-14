@@ -11,7 +11,7 @@
   }
   *{margin:0;padding:0;box-sizing:border-box;}
   html,body{height:100%;background:var(--bg0);overflow:hidden;font-family:"Segoe UI","Hiragino Kaku Gothic ProN",sans-serif;color:#eaf6ff;}
-  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
   #game{
     position:relative;
     box-shadow:0 0 60px rgba(34,227,255,.25),0 0 120px rgba(255,62,165,.15) inset;
@@ -21,25 +21,30 @@
   }
   canvas{display:block;border-radius:14px;}
 
-  /* スマホ向けタッチ操作ボタン（バレットタイム・ポーズ）。
-     マウス＋ホバー可能なデスクトップでは非表示にし、タッチ端末でのみ表示する。 */
+  /* スマホ向けタッチ操作バー（バレットタイム・ポーズ）。ゲーム画面の外（下）に置くことで
+     プレイ画面を一切隠さない。表示可否はCSSメディアクエリだけに頼らずJS側でも判定する
+     （実機ブラウザによってpointer:coarseの判定が不安定なことがあるため、html.touchDevice を正とする）。 */
+  #touchBar{display:none;align-items:center;justify-content:center;gap:20px;width:100%;}
+  html.touchDevice #touchBar.show{display:flex;}
+
+  /* HOW TO PLAYの操作説明は端末に応じてどちらか一方だけ表示する */
+  .controlsMobile{display:none;}
+  html.touchDevice .controlsPC{display:none;}
+  html.touchDevice .controlsMobile{display:block;}
+  html.touchDevice .keys.controlsMobile{display:grid;}
   .touchBtn{
-    position:absolute;z-index:16;display:none;
-    align-items:center;justify-content:center;
-    border-radius:50%;user-select:none;touch-action:none;
+    display:flex;align-items:center;justify-content:center;
+    border-radius:50%;user-select:none;touch-action:none;cursor:pointer;
     font-family:monospace;font-weight:800;color:#eaf6ff;
-    background:rgba(12,8,36,.45);backdrop-filter:blur(1px);
+    background:rgba(12,8,36,.6);backdrop-filter:blur(1px);
   }
-  @media (pointer:coarse){ .touchBtn{display:flex;} }
   #btnSlowMobile{
-    left:14px;top:50%;transform:translateY(-50%);
-    width:64px;height:64px;font-size:11px;letter-spacing:.05em;
+    width:60px;height:60px;font-size:11px;letter-spacing:.05em;
     border:2px solid rgba(169,112,255,.65);box-shadow:0 0 16px rgba(169,112,255,.35);
   }
   #btnSlowMobile.active{background:rgba(169,112,255,.35);box-shadow:0 0 24px rgba(169,112,255,.7);}
   #btnPauseMobile{
-    right:14px;top:14px;
-    width:38px;height:38px;font-size:14px;
+    width:52px;height:52px;font-size:16px;
     border:2px solid rgba(34,227,255,.55);box-shadow:0 0 12px rgba(34,227,255,.3);
   }
 
@@ -140,10 +145,6 @@
   <div id="game">
     <canvas id="cv"></canvas>
 
-    <!-- スマホ用タッチボタン（バレットタイム＝長押し／ポーズ＝タップ）。プレイ中のみ表示 -->
-    <div id="btnSlowMobile" class="touchBtn hidden">SLOW</div>
-    <div id="btnPauseMobile" class="touchBtn hidden">II</div>
-
     <!-- タイトル（できる限りシンプルに） -->
     <div id="titleScreen" class="overlay">
       <h1>NEON&nbsp;VOID</h1>
@@ -163,12 +164,19 @@
     <div id="howtoScreen" class="overlay hidden">
       <h1 style="font-size:clamp(24px,5.5vw,40px)">HOW TO PLAY</h1>
       <div class="panel">
-        <div class="howtoTitle">操作</div>
-        <div class="keys">
-          <b>WASD / ←↑↓→</b><span>移動（マウス・タッチドラッグも可）</span>
+        <div class="howtoTitle controlsPC">操作</div>
+        <div class="keys controlsPC">
+          <b>WASD / ←↑↓→</b><span>移動</span>
           <b>Space / J</b><span>ショット（押しっぱなしで連射）</span>
           <b>Shift / K</b><span>バレットタイム</span>
           <b>P</b><span>ポーズ</span>
+        </div>
+
+        <div class="howtoTitle controlsMobile">操作</div>
+        <div class="keys controlsMobile">
+          <b>画面をドラッグ</b><span>移動（押している間は自動でショットも発射）</span>
+          <b>SLOWボタン（長押し）</b><span>バレットタイム。ゲーム画面の下に表示される</span>
+          <b>IIボタン（タップ）</b><span>ポーズ／再開。こちらも画面の下に表示される</span>
         </div>
 
         <div class="howtoTitle">バレットタイムってなに？</div>
@@ -219,6 +227,12 @@
       <div class="tag" style="margin-top:20px">PRESS P TO RESUME</div>
     </div>
   </div>
+
+  <!-- スマホ用タッチバー（ゲーム画面の外・下に配置。バレットタイム＝長押し／ポーズ＝タップ） -->
+  <div id="touchBar">
+    <div id="btnSlowMobile" class="touchBtn">SLOW</div>
+    <div id="btnPauseMobile" class="touchBtn">II</div>
+  </div>
 </div>
 
 <script>
@@ -233,10 +247,24 @@ const ctx = CV.getContext('2d');
 const W = 720, H = 900;          // 内部解像度（縦画面）
 CV.width = W; CV.height = H;
 
+// タッチ端末判定（CSSのpointer:coarseだけだと実機ブラウザによって
+// 判定が不安定なことがあるため、複数条件のORでJS側からも判定してクラス付与する）
+if(
+  matchMedia('(pointer:coarse)').matches ||
+  matchMedia('(hover:none)').matches ||
+  navigator.maxTouchPoints>0 ||
+  'ontouchstart' in window
+){
+  document.documentElement.classList.add('touchDevice');
+}
+
 // 画面フィット（アスペクト維持）
 function fit(){
   const pad = 24;
-  const s = Math.min((innerWidth-pad)/W,(innerHeight-pad)/H);
+  // タッチ端末は画面外（ゲーム矩形の下）にSLOW/ポーズのコントロールバーを置くため、
+  // その分の高さをあらかじめ差し引いてゲーム本体のサイズを計算する。
+  const barH = document.documentElement.classList.contains('touchDevice') ? 86 : 0;
+  const s = Math.min((innerWidth-pad)/W,(innerHeight-pad-barH)/H);
   const g = document.getElementById('game');
   g.style.width = (W*s)+'px'; g.style.height = (H*s)+'px';
   CV.style.width = (W*s)+'px'; CV.style.height = (H*s)+'px';
@@ -275,6 +303,9 @@ CV.addEventListener('pointermove',e=>{ if(pointer) pointer=toLocal(e); });
 addEventListener('pointerup',()=>{ pointer=null; keys.fire=false; });
 
 // スマホ用タッチボタン：SLOWは長押しでバレットタイム、ポーズはタップでトグル
+// （ゲーム画面の外・下のバーに配置しているのでプレイ画面を隠さず、
+//   キャンバス上のドラッグ操作とは別のポインタとして独立して同時押しできる）
+const touchBar=document.getElementById('touchBar');
 const btnSlowMobile=document.getElementById('btnSlowMobile');
 const btnPauseMobile=document.getElementById('btnPauseMobile');
 function pressSlow(e){
@@ -886,8 +917,7 @@ function startGame(){
   endScreen.classList.add('hidden');
   pauseScreen.classList.add('hidden');
   stageClearScreen.classList.add('hidden');
-  btnSlowMobile.classList.remove('hidden');
-  btnPauseMobile.classList.remove('hidden');
+  touchBar.classList.add('show');
 }
 function endGame(win){
   state='end'; Sound.stopBGM();
@@ -903,8 +933,7 @@ function endGame(win){
   if(win) setStoryImage(endScreen,'art/stage3_clear.png');
   else endScreen.classList.remove('storyBg');
   endScreen.classList.remove('hidden');
-  btnSlowMobile.classList.add('hidden');
-  btnPauseMobile.classList.add('hidden');
+  touchBar.classList.remove('show');
 }
 function showStageClear(){
   state='stageClear'; Sound.stopBGM();
@@ -914,8 +943,7 @@ function showStageClear(){
     `<br><br><span style="color:var(--gold)">NEXT: ${STAGES[stageIndex+1].name}</span>`;
   setStoryImage(stageClearScreen,'art/stage'+(stageIndex+1)+'_clear.png');
   stageClearScreen.classList.remove('hidden');
-  btnSlowMobile.classList.add('hidden');
-  btnPauseMobile.classList.add('hidden');
+  touchBar.classList.remove('show');
 }
 function togglePause(){
   if(state==='play'){
