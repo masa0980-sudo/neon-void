@@ -21,6 +21,28 @@
   }
   canvas{display:block;border-radius:14px;}
 
+  /* スマホ向けタッチ操作ボタン（バレットタイム・ポーズ）。
+     マウス＋ホバー可能なデスクトップでは非表示にし、タッチ端末でのみ表示する。 */
+  .touchBtn{
+    position:absolute;z-index:16;display:none;
+    align-items:center;justify-content:center;
+    border-radius:50%;user-select:none;touch-action:none;
+    font-family:monospace;font-weight:800;color:#eaf6ff;
+    background:rgba(12,8,36,.45);backdrop-filter:blur(1px);
+  }
+  @media (pointer:coarse){ .touchBtn{display:flex;} }
+  #btnSlowMobile{
+    left:14px;top:50%;transform:translateY(-50%);
+    width:64px;height:64px;font-size:11px;letter-spacing:.05em;
+    border:2px solid rgba(169,112,255,.65);box-shadow:0 0 16px rgba(169,112,255,.35);
+  }
+  #btnSlowMobile.active{background:rgba(169,112,255,.35);box-shadow:0 0 24px rgba(169,112,255,.7);}
+  #btnPauseMobile{
+    right:14px;top:14px;
+    width:38px;height:38px;font-size:14px;
+    border:2px solid rgba(34,227,255,.55);box-shadow:0 0 12px rgba(34,227,255,.3);
+  }
+
   /* HUD overlay text */
   .overlay{
     position:absolute;inset:0;display:flex;flex-direction:column;
@@ -118,6 +140,10 @@
   <div id="game">
     <canvas id="cv"></canvas>
 
+    <!-- スマホ用タッチボタン（バレットタイム＝長押し／ポーズ＝タップ）。プレイ中のみ表示 -->
+    <div id="btnSlowMobile" class="touchBtn hidden">SLOW</div>
+    <div id="btnPauseMobile" class="touchBtn hidden">II</div>
+
     <!-- タイトル（できる限りシンプルに） -->
     <div id="titleScreen" class="overlay">
       <h1>NEON&nbsp;VOID</h1>
@@ -147,25 +173,25 @@
 
         <div class="howtoTitle">バレットタイムってなに？</div>
         <div class="howtoItem">
-          <b>Shift/K</b>を押している間だけ、<b>まわりの動きがゆっくり</b>になる必殺技。
-          自分だけふつうの速さで動けるから、弾のすき間をよけやすくなる。
+          <b>Shift/K</b>を押している間、<b>敵や弾の動きがゆっくり</b>になる時間減速の技。
+          自分はほぼ普通の速さで動けるので、濃い弾幕でもすき間を見極めてよけやすくなる。
         </div>
         <div class="howtoItem">
-          使うと右下の<b>ゲージ</b>が減っていく。ボタンを離せば自然に回復するので、
-          <b>ピンチのときだけ</b>使うのがコツ。
+          発動中は右下の<b>専用ゲージ</b>が減っていき、離すと自動で回復する。
+          ゲージが切れると使えなくなるので、<b>ここぞという場面に温存</b>して使うのがコツ。
         </div>
 
         <div class="howtoTitle">コンボ＆スコア</div>
-        <div class="howtoItem">敵をたてつづけに倒すと<b>コンボ</b>が増えて、スコアがどんどん高くなる。しばらく倒せないと0に戻る。</div>
+        <div class="howtoItem">敵を連続で倒すと<b>コンボ</b>が増え、スコアの倍率が上がっていく。しばらく倒せないとコンボはリセットされる。</div>
 
         <div class="howtoTitle">アイテム</div>
-        <div class="howtoItem">敵を倒すと、たまにアイテムが出てくる。<b>W＝武器が強くなる</b>、<b>＋＝HP回復</b>、<b>S＝1回だけ弾を防ぐバリア</b>。</div>
+        <div class="howtoItem">敵を倒すと、たまにアイテムが出てくる。<b>W＝武器強化</b>（弾が増える）、<b>＋＝HP回復</b>、<b>S＝シールド</b>（被弾を1回だけ防ぐ）。</div>
 
         <div class="howtoTitle">ステージ</div>
-        <div class="howtoItem">全部で<b>3つのステージ</b>がある。それぞれの最後にボスが待っていて、倒すと次のステージに進める。進むほどボスの攻撃も増えていく。</div>
+        <div class="howtoItem">全<b>3ステージ</b>構成。各ステージの最後には固有のボスが待っていて、倒すと次のステージへ進める。進むほどボスの攻撃パターンも増えていく。</div>
 
         <div class="howtoTitle">難易度</div>
-        <div class="howtoItem">タイトル画面で<b>EASY / NORMAL / HARD</b>を選べる。むずかしさが変わるだけで、遊び方は同じ。</div>
+        <div class="howtoItem">タイトル画面で<b>EASY / NORMAL / HARD</b>を選べる。HPや敵の強さが変わるだけで、遊び方は同じ。</div>
       </div>
       <div class="btnGhost" id="howtoCloseBtn">とじる ／ CLOSE</div>
     </div>
@@ -247,6 +273,20 @@ function toLocal(ev){
 CV.addEventListener('pointerdown',e=>{ pointer=toLocal(e); keys.fire=true; });
 CV.addEventListener('pointermove',e=>{ if(pointer) pointer=toLocal(e); });
 addEventListener('pointerup',()=>{ pointer=null; keys.fire=false; });
+
+// スマホ用タッチボタン：SLOWは長押しでバレットタイム、ポーズはタップでトグル
+const btnSlowMobile=document.getElementById('btnSlowMobile');
+const btnPauseMobile=document.getElementById('btnPauseMobile');
+function pressSlow(e){
+  e.preventDefault(); keys.slow=true; btnSlowMobile.classList.add('active');
+  if(btnSlowMobile.setPointerCapture) try{ btnSlowMobile.setPointerCapture(e.pointerId); }catch(err){}
+}
+function releaseSlow(e){ if(e) e.preventDefault(); keys.slow=false; btnSlowMobile.classList.remove('active'); }
+btnSlowMobile.addEventListener('pointerdown',pressSlow);
+btnSlowMobile.addEventListener('pointerup',releaseSlow);
+btnSlowMobile.addEventListener('pointercancel',releaseSlow);
+btnSlowMobile.addEventListener('pointerleave',releaseSlow);
+btnPauseMobile.addEventListener('pointerdown',e=>{ e.preventDefault(); togglePause(); });
 
 /* ---------------------- サウンド（WebAudio） ---------------------- */
 const Sound = (()=>{
@@ -846,6 +886,8 @@ function startGame(){
   endScreen.classList.add('hidden');
   pauseScreen.classList.add('hidden');
   stageClearScreen.classList.add('hidden');
+  btnSlowMobile.classList.remove('hidden');
+  btnPauseMobile.classList.remove('hidden');
 }
 function endGame(win){
   state='end'; Sound.stopBGM();
@@ -861,6 +903,8 @@ function endGame(win){
   if(win) setStoryImage(endScreen,'art/stage3_clear.png');
   else endScreen.classList.remove('storyBg');
   endScreen.classList.remove('hidden');
+  btnSlowMobile.classList.add('hidden');
+  btnPauseMobile.classList.add('hidden');
 }
 function showStageClear(){
   state='stageClear'; Sound.stopBGM();
@@ -870,10 +914,17 @@ function showStageClear(){
     `<br><br><span style="color:var(--gold)">NEXT: ${STAGES[stageIndex+1].name}</span>`;
   setStoryImage(stageClearScreen,'art/stage'+(stageIndex+1)+'_clear.png');
   stageClearScreen.classList.remove('hidden');
+  btnSlowMobile.classList.add('hidden');
+  btnPauseMobile.classList.add('hidden');
 }
 function togglePause(){
-  if(state==='play'){ state='pause'; pauseScreen.classList.remove('hidden'); Sound.stopBGM(); }
-  else if(state==='pause'){ state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM(); }
+  if(state==='play'){
+    state='pause'; pauseScreen.classList.remove('hidden'); Sound.stopBGM();
+    btnSlowMobile.classList.add('hidden');
+  }else if(state==='pause'){
+    state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM();
+    btnSlowMobile.classList.remove('hidden');
+  }
 }
 
 // タブがバックグラウンドになった／ブラウザを閉じた際は自動でポーズしてBGMを止める。
@@ -915,7 +966,7 @@ const STAGES=[
       {kind:'mix2',  count:16, gap:48},
     ],
     boss:{name:'OUTER SENTINEL', hp:130, color:'#ff3ea5', patterns:3}, // ring/aim/sweep
-    clearStory:'見張り役のボスを倒した！\nでもまだ奥に、もっと強いシグナルの反応がある。'
+    clearStory:'見張り役のボスを倒した。だがこれで終わりではない。\nより深いシグナルが、まだ奥で明滅している。'
   },
   {
     name:'STAGE 2 — SIGNAL DEPTHS', tint:'169,112,255',
@@ -925,7 +976,7 @@ const STAGES=[
       {kind:'heavy', count:18, gap:40},
     ],
     boss:{name:'SIGNAL WRAITH', hp:190, color:'#a970ff', patterns:5}, // + spiral, wall
-    clearStory:'深いところにいたボスも倒した！\n次はいよいよ、すべての元になっている「虚空の中枢」だ。'
+    clearStory:'深層のシグナルも静まった。残るは一つ。\nすべての信号が生まれる場所、虚空の中枢だ。'
   },
   {
     name:'STAGE 3 — VOID CORE', tint:'255,62,165',
