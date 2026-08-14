@@ -92,6 +92,25 @@
   .tag{margin-top:18px;font-size:12px;letter-spacing:.3em;color:#7d6cb0;}
   .flash{animation:fl 1.4s ease-in-out infinite;}
   @keyframes fl{50%{opacity:.35;}}
+
+  /* サブボタン（操作方法など、STARTより控えめな導線） */
+  .btnGhost{
+    margin-top:14px;display:inline-block;cursor:pointer;user-select:none;
+    padding:9px 26px;font-size:13px;font-weight:700;letter-spacing:.12em;
+    color:#cfe8ff;border:1.5px solid rgba(169,112,255,.45);border-radius:24px;
+    background:rgba(18,12,44,.5);transition:all .15s;
+  }
+  .btnGhost:hover{border-color:var(--cyan);color:#fff;background:rgba(34,227,255,.12);}
+
+  /* 操作方法（詳細）画面 */
+  #howtoScreen .panel{max-width:600px;max-height:74%;overflow-y:auto;text-align:left;}
+  .howtoTitle{
+    font-size:12px;letter-spacing:.25em;color:var(--gold);font-weight:800;
+    margin:18px 0 8px;text-transform:uppercase;
+  }
+  .howtoTitle:first-child{margin-top:0;}
+  .howtoItem{font-size:13px;color:#cfe8ff;line-height:1.8;margin-bottom:6px;}
+  .howtoItem b{color:var(--cyan);}
 </style>
 </head>
 <body>
@@ -99,22 +118,10 @@
   <div id="game">
     <canvas id="cv"></canvas>
 
-    <!-- タイトル -->
+    <!-- タイトル（できる限りシンプルに） -->
     <div id="titleScreen" class="overlay">
       <h1>NEON&nbsp;VOID</h1>
       <div class="sub">Synthwave Bullet Shooter</div>
-      <div class="panel">
-        <div class="keys">
-          <b>WASD / ←↑↓→</b><span>移動</span>
-          <b>Space / J</b><span>ショット（押しっぱなしで連射）</span>
-          <b>Shift / K</b><span>バレットタイム（時間減速・ゲージ消費）</span>
-          <b>P</b><span>ポーズ</span>
-        </div>
-        <p style="margin-top:16px;font-size:13px;color:#a9c8e6;line-height:1.7">
-          敵を連続撃破して<b style="color:var(--gold)">コンボ</b>を稼ぎ、光る<b style="color:var(--cyan)">パワーアップ</b>で武器を強化。
-          ピンチは<b style="color:var(--magenta)">バレットタイム</b>で切り抜けろ。全<b style="color:var(--gold)">3ステージ</b>、各ステージの最後に待つ<b style="color:var(--gold)">ボス</b>を倒すと、ストーリーがつながって次のステージへ進む。
-        </p>
-      </div>
       <div class="diffLabel">Difficulty</div>
       <div class="diffRow" id="diffRow">
         <div class="diffBtn" data-diff="easy">EASY</div>
@@ -122,7 +129,45 @@
         <div class="diffBtn" data-diff="hard">HARD</div>
       </div>
       <button class="btn" id="startBtn">START</button>
+      <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
       <div class="tag flash">CLICK / PRESS ENTER</div>
+    </div>
+
+    <!-- 操作方法（詳細） -->
+    <div id="howtoScreen" class="overlay hidden">
+      <h1 style="font-size:clamp(24px,5.5vw,40px)">HOW TO PLAY</h1>
+      <div class="panel">
+        <div class="howtoTitle">操作</div>
+        <div class="keys">
+          <b>WASD / ←↑↓→</b><span>移動（マウス・タッチドラッグも可）</span>
+          <b>Space / J</b><span>ショット（押しっぱなしで連射）</span>
+          <b>Shift / K</b><span>バレットタイム</span>
+          <b>P</b><span>ポーズ</span>
+        </div>
+
+        <div class="howtoTitle">バレットタイムってなに？</div>
+        <div class="howtoItem">
+          <b>Shift/K</b>を押している間だけ、<b>まわりの動きがゆっくり</b>になる必殺技。
+          自分だけふつうの速さで動けるから、弾のすき間をよけやすくなる。
+        </div>
+        <div class="howtoItem">
+          使うと右下の<b>ゲージ</b>が減っていく。ボタンを離せば自然に回復するので、
+          <b>ピンチのときだけ</b>使うのがコツ。
+        </div>
+
+        <div class="howtoTitle">コンボ＆スコア</div>
+        <div class="howtoItem">敵をたてつづけに倒すと<b>コンボ</b>が増えて、スコアがどんどん高くなる。しばらく倒せないと0に戻る。</div>
+
+        <div class="howtoTitle">アイテム</div>
+        <div class="howtoItem">敵を倒すと、たまにアイテムが出てくる。<b>W＝武器が強くなる</b>、<b>＋＝HP回復</b>、<b>S＝1回だけ弾を防ぐバリア</b>。</div>
+
+        <div class="howtoTitle">ステージ</div>
+        <div class="howtoItem">全部で<b>3つのステージ</b>がある。それぞれの最後にボスが待っていて、倒すと次のステージに進める。進むほどボスの攻撃も増えていく。</div>
+
+        <div class="howtoTitle">難易度</div>
+        <div class="howtoItem">タイトル画面で<b>EASY / NORMAL / HARD</b>を選べる。むずかしさが変わるだけで、遊び方は同じ。</div>
+      </div>
+      <div class="btnGhost" id="howtoCloseBtn">とじる ／ CLOSE</div>
     </div>
 
     <!-- ゲームオーバー / クリア -->
@@ -183,7 +228,9 @@ addEventListener('keydown',e=>{
   if(KEYMAP[e.code]){keys[KEYMAP[e.code]]=true; e.preventDefault();}
   if(e.code==='KeyP') togglePause();
   if(e.code==='Enter'){
-    if(state==='title') startGame();
+    if(state==='title' && !howtoScreen.classList.contains('hidden')){
+      howtoScreen.classList.add('hidden'); titleScreen.classList.remove('hidden');
+    }else if(state==='title') startGame();
     else if(state==='end') startGame();
     else if(state==='stageClear') nextStage();
   }
@@ -771,6 +818,7 @@ function hurtPlayer(){
 
 /* ---------------------- 状態遷移 ---------------------- */
 const titleScreen=document.getElementById('titleScreen');
+const howtoScreen=document.getElementById('howtoScreen');
 const endScreen=document.getElementById('endScreen');
 const pauseScreen=document.getElementById('pauseScreen');
 const endTitle=document.getElementById('endTitle');
@@ -794,6 +842,7 @@ function startGame(){
   Sound.startBGM(stageIndex);
   state='play';
   titleScreen.classList.add('hidden');
+  howtoScreen.classList.add('hidden');
   endScreen.classList.add('hidden');
   pauseScreen.classList.add('hidden');
   stageClearScreen.classList.add('hidden');
@@ -838,6 +887,14 @@ addEventListener('pagehide',()=>{ Sound.stopBGM(); });
 document.getElementById('startBtn').onclick=startGame;
 document.getElementById('retryBtn').onclick=startGame;
 document.getElementById('continueBtn').onclick=nextStage;
+document.getElementById('howtoBtn').onclick=()=>{
+  titleScreen.classList.add('hidden');
+  howtoScreen.classList.remove('hidden');
+};
+document.getElementById('howtoCloseBtn').onclick=()=>{
+  howtoScreen.classList.add('hidden');
+  titleScreen.classList.remove('hidden');
+};
 document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     difficulty=btn.dataset.diff;
@@ -858,7 +915,7 @@ const STAGES=[
       {kind:'mix2',  count:16, gap:48},
     ],
     boss:{name:'OUTER SENTINEL', hp:130, color:'#ff3ea5', patterns:3}, // ring/aim/sweep
-    clearStory:'外縁の監視網は沈黙した。だがこれは始まりに過ぎない。\n落とした残骸には、同じ紋章が刻まれている——\nより深いシグナルが、まだ奥で明滅している。'
+    clearStory:'見張り役のボスを倒した！\nでもまだ奥に、もっと強いシグナルの反応がある。'
   },
   {
     name:'STAGE 2 — SIGNAL DEPTHS', tint:'169,112,255',
@@ -868,7 +925,7 @@ const STAGES=[
       {kind:'heavy', count:18, gap:40},
     ],
     boss:{name:'SIGNAL WRAITH', hp:190, color:'#a970ff', patterns:5}, // + spiral, wall
-    clearStory:'深層のシグナルは静まった。残された紋章が指す先は一つ——\nすべての信号が生まれる場所、虚空の中枢だ。'
+    clearStory:'深いところにいたボスも倒した！\n次はいよいよ、すべての元になっている「虚空の中枢」だ。'
   },
   {
     name:'STAGE 3 — VOID CORE', tint:'255,62,165',
