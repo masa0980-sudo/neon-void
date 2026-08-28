@@ -194,6 +194,7 @@
       <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
       <div class="btnGhost" id="soundTestBtn">サウンドテスト ／ SOUND TEST</div>
       <div class="tag flash">CLICK / PRESS ENTER</div>
+      <div class="tag" style="opacity:.45;font-size:11px;margin-top:6px">F2 で音声の診断表示</div>
     </div>
 
     <!-- サウンドテスト（全5面のBGMと全効果音をその場で再生できる） -->
@@ -713,6 +714,7 @@ const Sound = (()=>{
   let liteAudio=false;
   let liteLocked=false;   // ユーザーが手動で選んだら自動検知に触らせない
   let hatCount=0;         // ハイハットを間引くための計数
+  let schedErrors=0, lastSchedError='';   // 発音スケジュールで起きた例外の記録
   function leadVoicing(chord,deg){
     const lead=extTone(chord,deg);
     const below = deg>0 ? extTone(chord,deg-1) : chord.tones[2]-12; // 0のときは5度下
@@ -1215,8 +1217,11 @@ const Sound = (()=>{
     /* 万一それでも大量に溜まった場合に備えて1回あたりの予約数も制限する */
     let guard=0;
     while(nextStepTime < now+SCHEDULE_AHEAD && guard++ < 32){
-      // 1音の失敗でスケジューラ全体が止まると以後ずっと無音になるため、必ず握る
-      try{ scheduleStep(currentStep,nextStepTime); }catch(err){ /* この音だけ捨てて続行 */ }
+      /* 1音の失敗でスケジューラ全体が止まると以後ずっと無音になるため必ず握る。
+         ただし握りつぶすと「スケジューラは動いているのに毎回失敗して無音」という
+         最悪の状態が正常に見えてしまうので、件数と内容を必ず残す。 */
+      try{ scheduleStep(currentStep,nextStepTime); }
+      catch(err){ schedErrors++; lastSchedError=String((err&&err.message)||err); }
       nextStepTime+=stepDur;
       currentStep++;
     }
@@ -1432,7 +1437,11 @@ const Sound = (()=>{
       音声停止: !ac || ac.state!=='running',
       音量: master ? master.gain.value : 0,
       面: trackIndex,
-      軽量モード: liteAudio
+      軽量モード: liteAudio,
+      例外件数: schedErrors,
+      例外内容: lastSchedError,
+      拍: currentStep,
+      音声時刻: ac ? ac.currentTime : 0
     };
   }
   /* 軽量モードを外から切り替える。
@@ -1955,6 +1964,47 @@ addEventListener('focus',()=>{
   if(pausedByFocusLoss && state==='pause'){ pausedByFocusLoss=false; togglePause(); }
 });
 addEventListener('pagehide',()=>{ Sound.stopBGM(); });
+
+/* 音声診断オーバーレイ（F2で表示切替）。
+   BGMが途切れる症状が環境依存で再現できないため、実際に起きている端末で
+   何が起きているかを数値で確認できるようにする。
+   - 音声追従: 音声時計が実時計にどれだけついてこられているか（1.00が正常）
+   - 拍/秒   : スケジューラが刻んでいる速さ（一定なら正常。落ちれば主スレッド起因）
+   - 例外    : 発音の失敗件数（0以外なら握りつぶされた不具合がある）
+   - fps     : 描画の速さ（落ちていれば主スレッドが重い） */
+const diagBox=document.createElement('div');
+diagBox.id='diagBox';
+diagBox.style.cssText='position:fixed;left:8px;top:8px;z-index:9999;display:none;'+
+  'background:rgba(4,8,18,.82);color:#9fe7ff;font:12px/1.55 ui-monospace,Consolas,monospace;'+
+  'padding:8px 10px;border:1px solid rgba(120,220,255,.35);border-radius:8px;white-space:pre;pointer-events:none';
+document.body.appendChild(diagBox);
+let diagOn=false, diagFrames=0, diagPrevWall=performance.now(), diagPrevAudio=0, diagPrevStep=0, diagWorst=1;
+addEventListener('keydown',e=>{
+  if(e.key==='F2'){
+    diagOn=!diagOn;
+    diagBox.style.display=diagOn?'block':'none';
+    if(diagOn){ diagWorst=1; diagPrevWall=performance.now(); const h=Sound.health(); diagPrevAudio=h.音声時刻; diagPrevStep=h.拍; }
+    e.preventDefault();
+  }
+});
+(function countFrames(){ diagFrames++; requestAnimationFrame(countFrames); })();
+setInterval(()=>{
+  if(!diagOn) return;
+  const h=Sound.health(), w=performance.now();
+  const sec=(w-diagPrevWall)/1000;
+  const ratio = sec>0 ? (h.音声時刻-diagPrevAudio)/sec : 1;
+  const steps = sec>0 ? (h.拍-diagPrevStep)/sec : 0;
+  if(ratio>0.05) diagWorst=Math.min(diagWorst,ratio);
+  diagBox.textContent =
+    '音声追従 '+ratio.toFixed(2)+'  （最悪 '+diagWorst.toFixed(2)+'）\n'+
+    '拍/秒    '+steps.toFixed(1)+'\n'+
+    'fps      '+Math.round(diagFrames/Math.max(sec,0.001))+'\n'+
+    '例外     '+h.例外件数+(h.例外内容?' : '+h.例外内容:'')+'\n'+
+    '音量     '+h.音量.toFixed(3)+'   軽量 '+(h.軽量モード?'ON':'OFF')+'\n'+
+    'BGM      '+(h.鳴っている?'再生中':'停止')+'   面 '+(h.面+1)+'\n'+
+    '経過     '+Math.round(w/1000)+'秒';
+  diagPrevWall=w; diagPrevAudio=h.音声時刻; diagPrevStep=h.拍; diagFrames=0;
+},1000);
 
 /* BGM監視役。
    BGMを止める経路が複数あり（ポーズ・フォーカス喪失・面クリア・ゲームオーバー・
