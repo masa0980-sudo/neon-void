@@ -185,22 +185,10 @@
         <div class="diffBtn active" data-diff="normal">NORMAL</div>
         <div class="diffBtn" data-diff="hard">HARD</div>
       </div>
-      <div class="diffLabel">音質 ／ Audio</div>
-      <div class="diffRow" id="audioRow">
-        <div class="diffBtn active" data-audio="full">標準</div>
-        <div class="diffBtn" data-audio="lite">軽量</div>
-      </div>
-      <div class="tag" style="opacity:.4;font-size:10px;margin:-4px 0 4px">軽量は再読み込み後に完全反映</div>
-      <div class="diffLabel">画質 ／ Graphics</div>
-      <div class="diffRow" id="fxRow">
-        <div class="diffBtn active" data-fx="full">標準</div>
-        <div class="diffBtn" data-fx="lite">軽量</div>
-      </div>
       <button class="btn" id="startBtn">START</button>
       <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
       <div class="btnGhost" id="soundTestBtn">サウンドテスト ／ SOUND TEST</div>
       <div class="tag flash">CLICK / PRESS ENTER</div>
-      <div class="tag" style="opacity:.45;font-size:11px;margin-top:6px">F2 で音声の診断表示</div>
     </div>
 
     <!-- サウンドテスト（全5面のBGMと全効果音をその場で再生できる） -->
@@ -399,21 +387,13 @@ const Sound = (()=>{
          40ms ぶん確保すると音声スレッドの猶予が数倍になり、途切れに強くなる。
          代償は効果音がわずかに遅れることだが、体感できる差ではない。 */
       const AC = window.AudioContext||window.webkitAudioContext;
-      /* 音質を軽量にしている場合はサンプリングレートも下げる。
-         音声処理の量はレートに正比例するため、48kHz→24kHz でDSP負荷が丸ごと半減する。
-         これは音数を削るどの対策よりも効きが大きい。
-         高音のきらめきは減るが、この曲は大半が8kHz以下なので破綻しない。
-         レートは生成時にしか指定できないため、切り替えは次回起動から反映される。 */
-      let wantLite=false;
-      try{ wantLite = localStorage.getItem('neonVoidAudio')==='lite'; }catch(e){}
-
       /* 端末によっては音声が 96kHz で動いており（実測で確認）、
          48kHz の倍の処理量を無駄に払っている。この曲は大半が8kHz以下なので
          96kHz にする意味はなく、上限を48kHzに抑えるだけで負荷が半減する。
          既定が44.1kHzの端末では余計な変換をしないようそのまま使う。 */
       let baseRate=48000;
       try{ const probe=new AC(); baseRate=probe.sampleRate; probe.close(); }catch(e){}
-      const target = wantLite ? 24000 : Math.min(baseRate,48000);
+      const target = Math.min(baseRate,48000);
 
       try{ ac = new AC({latencyHint:0.04, sampleRate:target}); }
       catch(e){
@@ -744,7 +724,6 @@ const Sound = (()=>{
      この2つだけで音声負荷の7割を占める。常時薄くすると音が痩せるため、
      実際に詰まりを検知したときに限って声を減らす。 */
   let liteAudio=false;
-  let liteLocked=false;   // ユーザーが手動で選んだら自動検知に触らせない
   let hatCount=0;         // ハイハットを間引くための計数
   let schedErrors=0, lastSchedError='';   // 発音スケジュールで起きた例外の記録
   function leadVoicing(chord,deg){
@@ -1437,7 +1416,7 @@ const Sound = (()=>{
       const elapsed=(w-lastWall)/1000;
       const ratio = elapsed>0 ? (a-lastAudio)/elapsed : 1;
       lastWall=w; lastAudio=a;
-      if(bgmTimerId && ratio>0.05 && !liteLocked){
+      if(bgmTimerId && ratio>0.05){
         if(ratio<0.97){
           okRuns=0;
           if(++lagStrikes>=2) liteAudio=true;
@@ -1481,13 +1460,8 @@ const Sound = (()=>{
       レート: ac ? ac.sampleRate : 0
     };
   }
-  /* 軽量モードを外から切り替える。
-     ユーザーが自分で選んだ場合は liteLocked を立て、自動検知に上書きさせない
-     （軽量を選んだのに30秒後に勝手に標準へ戻る、という事故を防ぐ）。 */
-  function setLite(v,manual){
-    liteAudio=!!v;
-    if(manual) liteLocked=true;
-  }
+  // 軽量モードを外から切り替える（動作確認用。通常は自動判定に任せる）
+  function setLite(v){ liteAudio=!!v; }
   function forceRestart(stageIdx){
     if(!ac) return;
     try{ ac.resume(); }catch(e){}
@@ -2184,43 +2158,14 @@ document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
   });
 });
 
-/* 音質切替。非力な端末では5面のように音数の多い曲で音が途切れることがあるため、
-   手動で軽量化できるようにする（ハモリ・ベースの重ね・ハイハットを減らす）。
-   選択は次回以降も保持する。自動検知もあるが、それに頼らず自分で選べるようにする。 */
+/* 音質・画質の手動切替はタイトル画面から外し、自動判定に任せる。
+   fpsが落ちれば発光を切り、音声が実時間に追いつかなくなれば音数を減らす。
+   以前の選択が保存されたままだと「手動指定」とみなして自動判定が働かなくなるため、
+   残っていれば消しておく。 */
 try{
-  if(localStorage.getItem('neonVoidAudio')==='lite'){
-    Sound.setLite(true, true);
-    document.querySelectorAll('#audioRow .diffBtn').forEach(b=>
-      b.classList.toggle('active', b.dataset.audio==='lite'));
-  }
+  localStorage.removeItem('neonVoidAudio');
+  localStorage.removeItem('neonVoidFx');
 }catch(e){}
-document.querySelectorAll('#audioRow .diffBtn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    const lite = btn.dataset.audio==='lite';
-    Sound.setLite(lite, true);   // 手動選択なので自動検知に上書きさせない
-    try{ localStorage.setItem('neonVoidAudio', lite?'lite':'full'); }catch(e){}
-    document.querySelectorAll('#audioRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
-  });
-});
-
-/* 画質切替。発光（shadowBlur）を切ると描画が大幅に軽くなる。
-   描画が軽くなれば主スレッドが空き、音声スケジューラが飢えなくなるため
-   BGMの途切れにも効く。 */
-try{
-  if(localStorage.getItem('neonVoidFx')==='lite'){
-    lowFX=true; fxLocked=true;
-    document.querySelectorAll('#fxRow .diffBtn').forEach(b=>
-      b.classList.toggle('active', b.dataset.fx==='lite'));
-  }
-}catch(e){}
-document.querySelectorAll('#fxRow .diffBtn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    lowFX = btn.dataset.fx==='lite';
-    fxLocked = true;                      // 手動選択は自動判定に上書きさせない
-    try{ localStorage.setItem('neonVoidFx', lowFX?'lite':'full'); }catch(e){}
-    document.querySelectorAll('#fxRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
-  });
-});
 
 /* ---------------------- ステージ制御（5ステージ・ストーリーで接続） ----------------------
    色相を cyan → violet → green → amber → magenta と巡らせ、面が変わったことを
@@ -3288,16 +3233,14 @@ function drawHUD(){
 let last=performance.now();
 /* fpsを見て、遅い端末では自動的に発光を切る。
    発光の有無で描画コストが大きく変わるため、まずここを落として主スレッドを空ける
-   （主スレッドが詰まると音声スケジューラが飢えてBGMが途切れる）。
-   画質を手動で選んでいる場合は尊重して自動では触らない。 */
-let fxLocked=false, fpsFrames=0, fpsSince=performance.now(), fpsSlowRuns=0, fpsFastRuns=0;
+   （主スレッドが詰まると音声スケジューラが飢えてBGMが途切れる）。 */
+let fpsFrames=0, fpsSince=performance.now(), fpsSlowRuns=0, fpsFastRuns=0;
 function autoQuality(now){
   fpsFrames++;
   const sec=(now-fpsSince)/1000;
   if(sec<1) return;
   const fps=fpsFrames/sec;
   fpsFrames=0; fpsSince=now;
-  if(fxLocked) return;
   if(fps<50){ fpsFastRuns=0; if(++fpsSlowRuns>=3) lowFX=true; }
   else if(fps>=58){ fpsSlowRuns=0; if(lowFX && ++fpsFastRuns>=20){ lowFX=false; fpsFastRuns=0; } }
 }
