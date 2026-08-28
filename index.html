@@ -190,6 +190,11 @@
         <div class="diffBtn active" data-audio="full">標準</div>
         <div class="diffBtn" data-audio="lite">軽量</div>
       </div>
+      <div class="diffLabel">画質 ／ Graphics</div>
+      <div class="diffRow" id="fxRow">
+        <div class="diffBtn active" data-fx="full">標準</div>
+        <div class="diffBtn" data-fx="lite">軽量</div>
+      </div>
       <button class="btn" id="startBtn">START</button>
       <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
       <div class="btnGhost" id="soundTestBtn">サウンドテスト ／ SOUND TEST</div>
@@ -1575,19 +1580,31 @@ function drawBgArt(comboBoost){
   ctx.restore();
 }
 
-/* --- ③ 周辺減光（ビネット）。周辺を落として弾と敵を浮き立たせる --- */
+/* --- ③ 周辺減光（ビネット）。周辺を落として弾と敵を浮き立たせる ---
+   全画面の放射グラデーションは塗るだけでも高価なうえ、毎フレーム生成していた。
+   一度だけ別キャンバスに描いておき、以後は貼るだけにする（見た目は変わらない）。 */
+let vignetteCache=null;
 function drawVignette(){
-  const g=ctx.createRadialGradient(W/2,H*0.5,H*0.28,W/2,H*0.5,H*0.78);
-  g.addColorStop(0,'rgba(0,0,0,0)');
-  g.addColorStop(1,'rgba(3,2,10,0.5)');
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  if(!vignetteCache){
+    vignetteCache=document.createElement('canvas');
+    vignetteCache.width=W; vignetteCache.height=H;
+    const vg=vignetteCache.getContext('2d');
+    const g=vg.createRadialGradient(W/2,H*0.5,H*0.28,W/2,H*0.5,H*0.78);
+    g.addColorStop(0,'rgba(0,0,0,0)');
+    g.addColorStop(1,'rgba(3,2,10,0.5)');
+    vg.fillStyle=g; vg.fillRect(0,0,W,H);
+  }
+  ctx.drawImage(vignetteCache,0,0);
 }
 
+let bgGrad=null;   // 背景のグラデーションも毎フレーム作り直す必要はない
 function drawBackground(comboBoost){
   // ① ベースのグラデーション
-  const grad=ctx.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,'#0a0620'); grad.addColorStop(1,'#05030f');
-  ctx.fillStyle=grad; ctx.fillRect(-30,-30,W+60,H+60);
+  if(!bgGrad){
+    bgGrad=ctx.createLinearGradient(0,0,0,H);
+    bgGrad.addColorStop(0,'#0a0620'); bgGrad.addColorStop(1,'#05030f');
+  }
+  ctx.fillStyle=bgGrad; ctx.fillRect(-30,-30,W+60,H+60);
 
   drawBgArt(comboBoost);
 
@@ -2000,7 +2017,8 @@ setInterval(()=>{
     '拍/秒    '+steps.toFixed(1)+'\n'+
     'fps      '+Math.round(diagFrames/Math.max(sec,0.001))+'\n'+
     '例外     '+h.例外件数+(h.例外内容?' : '+h.例外内容:'')+'\n'+
-    '音量     '+h.音量.toFixed(3)+'   軽量 '+(h.軽量モード?'ON':'OFF')+'\n'+
+    '音量     '+h.音量.toFixed(3)+'   音軽量 '+(h.軽量モード?'ON':'OFF')+'\n'+
+    '発光     '+(lowFX?'OFF(軽量)':'ON')+'\n'+
     'BGM      '+(h.鳴っている?'再生中':'停止')+'   面 '+(h.面+1)+'\n'+
     '経過     '+Math.round(w/1000)+'秒';
   diagPrevWall=w; diagPrevAudio=h.音声時刻; diagPrevStep=h.拍; diagFrames=0;
@@ -2131,6 +2149,25 @@ document.querySelectorAll('#audioRow .diffBtn').forEach(btn=>{
     Sound.setLite(lite, true);   // 手動選択なので自動検知に上書きさせない
     try{ localStorage.setItem('neonVoidAudio', lite?'lite':'full'); }catch(e){}
     document.querySelectorAll('#audioRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
+  });
+});
+
+/* 画質切替。発光（shadowBlur）を切ると描画が大幅に軽くなる。
+   描画が軽くなれば主スレッドが空き、音声スケジューラが飢えなくなるため
+   BGMの途切れにも効く。 */
+try{
+  if(localStorage.getItem('neonVoidFx')==='lite'){
+    lowFX=true; fxLocked=true;
+    document.querySelectorAll('#fxRow .diffBtn').forEach(b=>
+      b.classList.toggle('active', b.dataset.fx==='lite'));
+  }
+}catch(e){}
+document.querySelectorAll('#fxRow .diffBtn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    lowFX = btn.dataset.fx==='lite';
+    fxLocked = true;                      // 手動選択は自動判定に上書きさせない
+    try{ localStorage.setItem('neonVoidFx', lowFX?'lite':'full'); }catch(e){}
+    document.querySelectorAll('#fxRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
   });
 });
 
@@ -2578,7 +2615,14 @@ function drawBossIntro(b){
   ctx.restore();
 }
 
+/* ネオンの発光は Canvas の shadowBlur で出しているが、これは Canvas2D で
+   最も高価な処理のひとつで、敵・弾・粒子ごとに毎フレーム走る（50箇所で使用）。
+   非力な端末ではこれが主スレッドを食い潰し、その結果として音声スケジューラが
+   飢えて BGM が途切れる（実測: ポーズ中でも 37fps しか出ていなかった）。
+   軽量画質では発光を切る。形と色はそのままなので視認性は落ちない。 */
+let lowFX=false;
 function neon(fn,color,blur=16){
+  if(lowFX){ ctx.save(); fn(); ctx.restore(); return; }
   ctx.save(); ctx.shadowColor=color; ctx.shadowBlur=blur; fn(); ctx.restore();
 }
 
@@ -3160,15 +3204,34 @@ function drawHUD(){
 
 /* ---------------------- ループ ---------------------- */
 let last=performance.now();
+/* fpsを見て、遅い端末では自動的に発光を切る。
+   発光の有無で描画コストが大きく変わるため、まずここを落として主スレッドを空ける
+   （主スレッドが詰まると音声スケジューラが飢えてBGMが途切れる）。
+   画質を手動で選んでいる場合は尊重して自動では触らない。 */
+let fxLocked=false, fpsFrames=0, fpsSince=performance.now(), fpsSlowRuns=0, fpsFastRuns=0;
+function autoQuality(now){
+  fpsFrames++;
+  const sec=(now-fpsSince)/1000;
+  if(sec<1) return;
+  const fps=fpsFrames/sec;
+  fpsFrames=0; fpsSince=now;
+  if(fxLocked) return;
+  if(fps<50){ fpsFastRuns=0; if(++fpsSlowRuns>=3) lowFX=true; }
+  else if(fps>=58){ fpsSlowRuns=0; if(lowFX && ++fpsFastRuns>=20){ lowFX=false; fpsFastRuns=0; } }
+}
+
 function loop(now){
   let dt=(now-last)/16.67; last=now;
   dt=Math.min(dt,2.2);            // フレーム落ち保護
+  autoQuality(now);
   if(hitStop>0){ hitStop-=dt; }   // ヒットストップ
   if(state==='play' && hitStop<=0){ update(dt); }
   else if(state==='play' && hitStop>0){ /* 一瞬停止：描画のみ */ }
-  draw();
+  // ポーズ中は画面が静止しているので描き直す必要がない（1枚だけ描いて以降は省く）
+  if(state!=='pause' || !pauseDrawn){ draw(); pauseDrawn=(state==='pause'); }
   requestAnimationFrame(loop);
 }
+let pauseDrawn=false;
 
 state='title';
 resetGame();
