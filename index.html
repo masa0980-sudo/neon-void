@@ -1651,7 +1651,13 @@ function drawBackground(comboBoost){
 }
 
 /* ---------------------- パーティクル ---------------------- */
+/* 粒子は敵がまとめて落ちると一気に増え、その分だけ毎フレームの描画が重くなる。
+   重なった粒子は見た目にほとんど差が出ないので上限を設ける。
+   さらに軽量画質のときは生成数自体を減らす（fpsを優先する設定なので整合する）。 */
+const PARTICLE_MAX=220;
 function burst(x,y,color,n,spd=4,life=40){
+  if(lowFX) n=Math.max(1,Math.round(n*0.5));
+  n=Math.min(n, Math.max(0, PARTICLE_MAX-particles.length));
   for(let i=0;i<n;i++){
     const a=rnd(0,Math.PI*2), v=rnd(spd*0.3,spd);
     particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,
@@ -2600,7 +2606,9 @@ function killBoss(){
 
 /* ---------------------- 描画 ---------------------- */
 function draw(){
-  ctx.clearRect(0,0,W,H);
+  /* 直後に drawBackground が不透明なグラデーションで画面全体（さらに上下左右30px余分に）
+     塗り潰すため、clearRect は完全に無駄な1回分の全画面走査だった。
+     全画面を触る処理はこの規模のゲームで最も効くので削る。 */
   ctx.save();
   if(screenShake>0.5){ ctx.translate(rnd(-screenShake,screenShake),rnd(-screenShake,screenShake)); }
   // 撃破の瞬間だけわずかにズームパンチして迫力を出す
@@ -2665,6 +2673,31 @@ function drawBossIntro(b){
    非力な端末ではこれが主スレッドを食い潰し、その結果として音声スケジューラが
    飢えて BGM が途切れる（実測: ポーズ中でも 37fps しか出ていなかった）。
    軽量画質では発光を切る。形と色はそのままなので視認性は落ちない。 */
+/* グラデーションは毎フレーム作り直していたが、いずれも「変形後のローカル座標」で
+   作っているため中身は毎回同じで、敵の数だけ無駄に生成していた（実測で毎フレーム約20個）。
+   同じ指定なら作り置きを返す。見た目は一切変わらない。
+   炎の長さやボスの脈動のように動く値は、キーに使う前に少し丸めて
+   当たりやすくする（1〜2px単位の違いは見えない）。 */
+const gradCache=new Map();
+function lg(key,x0,y0,x1,y1,stops){
+  let g=gradCache.get(key);
+  if(!g){
+    g=ctx.createLinearGradient(x0,y0,x1,y1);
+    for(let i=0;i<stops.length;i+=2) g.addColorStop(stops[i],stops[i+1]);
+    gradCache.set(key,g);
+  }
+  return g;
+}
+function rg(key,x0,y0,r0,x1,y1,r1,stops){
+  let g=gradCache.get(key);
+  if(!g){
+    g=ctx.createRadialGradient(x0,y0,r0,x1,y1,r1);
+    for(let i=0;i<stops.length;i+=2) g.addColorStop(stops[i],stops[i+1]);
+    gradCache.set(key,g);
+  }
+  return g;
+}
+
 let lowFX=false;
 function neon(fn,color,blur=16){
   if(lowFX){ ctx.save(); fn(); ctx.restore(); return; }
@@ -2683,9 +2716,9 @@ function drawPlayer(){
   for(const side of [-1,1]){
     const ex=side*9;
     neon(()=>{
-      const g=ctx.createLinearGradient(ex,10,ex,26+fl);
-      g.addColorStop(0,'#fff6c8'); g.addColorStop(0.4,'#ff3ea5'); g.addColorStop(1,'rgba(255,62,165,0)');
-      ctx.fillStyle=g;
+      const flq=Math.round(fl/2)*2;            // 2px単位に丸めて使い回しを効かせる
+      ctx.fillStyle=lg('ex'+ex+'_'+flq, ex,10,ex,26+flq,
+        [0,'#fff6c8',0.4,'#ff3ea5',1,'rgba(255,62,165,0)']);
       ctx.beginPath();
       ctx.moveTo(ex-4,11); ctx.lineTo(ex,20+fl); ctx.lineTo(ex+4,11);
       ctx.closePath(); ctx.fill();
@@ -2693,9 +2726,9 @@ function drawPlayer(){
   }
   // 中央メインスラスター
   neon(()=>{
-    const g=ctx.createLinearGradient(0,8,0,24+fl2);
-    g.addColorStop(0,'#eaf6ff'); g.addColorStop(0.35,'#22e3ff'); g.addColorStop(1,'rgba(34,227,255,0)');
-    ctx.fillStyle=g;
+    const fl2q=Math.round(fl2/2)*2;
+    ctx.fillStyle=lg('ex2_'+fl2q, 0,8,0,24+fl2q,
+      [0,'#eaf6ff',0.35,'#22e3ff',1,'rgba(34,227,255,0)']);
     ctx.beginPath();
     ctx.moveTo(-5,8); ctx.lineTo(0,18+fl2); ctx.lineTo(5,8);
     ctx.closePath(); ctx.fill();
@@ -2703,9 +2736,7 @@ function drawPlayer(){
 
   // --- 機体本体（多角形フォルム＋グラデ塗り＋パネルライン） ---
   neon(()=>{
-    const hull=ctx.createLinearGradient(0,-20,0,14);
-    hull.addColorStop(0,'#eaf6ff'); hull.addColorStop(0.5,'#bcd6ee'); hull.addColorStop(1,'#7f9fc4');
-    ctx.fillStyle=hull;
+    ctx.fillStyle=lg('hull', 0,-20,0,14, [0,'#eaf6ff',0.5,'#bcd6ee',1,'#7f9fc4']);
     ctx.beginPath();
     ctx.moveTo(0,-20);        // ノーズ
     ctx.lineTo(4,-6);
@@ -2760,9 +2791,8 @@ function drawPlayer(){
 
   // コックピット（放射グラデの発光コア）
   neon(()=>{
-    const cg=ctx.createRadialGradient(0,-4,0.5,0,-2,6);
-    cg.addColorStop(0,'#ffffff'); cg.addColorStop(0.4,'#22e3ff'); cg.addColorStop(1,'rgba(34,227,255,0)');
-    ctx.fillStyle=cg;
+    ctx.fillStyle=rg('cockpit', 0,-4,0.5,0,-2,6,
+      [0,'#ffffff',0.4,'#22e3ff',1,'rgba(34,227,255,0)']);
     ctx.beginPath(); ctx.arc(0,-2,6,0,7); ctx.fill();
   },'#22e3ff',22);
   neon(()=>{
@@ -2822,9 +2852,8 @@ function drawEnemies(){
       // 発光アイ（自機を睨む）
       neon(()=>{
         const ang=Math.atan2(player.y-e.y,player.x-e.x);
-        const eg=ctx.createRadialGradient(0,e.r*0.05,0,0,e.r*0.05,4);
-        eg.addColorStop(0,'#ffffff'); eg.addColorStop(0.5,'#fff'); eg.addColorStop(1,'rgba(255,255,255,0)');
-        ctx.fillStyle=eg;
+        ctx.fillStyle=rg('eye'+e.r, 0,e.r*0.05,0,0,e.r*0.05,4,
+          [0,'#ffffff',0.5,'#fff',1,'rgba(255,255,255,0)']);
         ctx.beginPath(); ctx.arc(0,e.r*0.05,3.6,0,7); ctx.fill();
         ctx.fillStyle='#05030f';
         ctx.beginPath(); ctx.arc(Math.cos(ang)*1.2,e.r*0.05+Math.sin(ang)*1.2,1.3,0,7); ctx.fill();
@@ -2849,9 +2878,8 @@ function drawEnemies(){
       ctx.restore();
       neon(()=>{
         ctx.save(); ctx.rotate(Math.PI/4+e.t*0.03);
-        const g=ctx.createLinearGradient(-e.r*0.7,-e.r*0.7,e.r*0.7,e.r*0.7);
-        g.addColorStop(0,'#eaccff'); g.addColorStop(0.5,c); g.addColorStop(1,'#5a2ea0');
-        ctx.fillStyle=g;
+        ctx.fillStyle=lg('sq'+e.r+c, -e.r*0.7,-e.r*0.7,e.r*0.7,e.r*0.7,
+          [0,'#eaccff',0.5,c,1,'#5a2ea0']);
         ctx.fillRect(-e.r*0.68,-e.r*0.68,e.r*1.36,e.r*1.36);
         ctx.strokeStyle='rgba(10,0,30,0.5)'; ctx.lineWidth=1;
         ctx.strokeRect(-e.r*0.68,-e.r*0.68,e.r*1.36,e.r*1.36);
@@ -2935,9 +2963,8 @@ function drawEnemies(){
     }else if(e.type==='bomber'){
       // 爆撃機：横長の装甲艇。下部の投下ハッチが明滅する
       neon(()=>{
-        const g=ctx.createLinearGradient(0,-e.r*0.7,0,e.r*0.7);
-        g.addColorStop(0,'#ffe0a8'); g.addColorStop(0.5,c); g.addColorStop(1,'#8a4a08');
-        ctx.fillStyle=g;
+        ctx.fillStyle=lg('bm'+e.r+c, 0,-e.r*0.7,0,e.r*0.7,
+          [0,'#ffe0a8',0.5,c,1,'#8a4a08']);
         ctx.beginPath();
         ctx.moveTo(-e.r,-e.r*0.25); ctx.lineTo(-e.r*0.5,-e.r*0.7);
         ctx.lineTo(e.r*0.5,-e.r*0.7); ctx.lineTo(e.r,-e.r*0.25);
@@ -2964,9 +2991,8 @@ function drawEnemies(){
         ctx.restore();
       },e.color,8);
       neon(()=>{
-        const g=ctx.createRadialGradient(0,0,e.r*0.2,0,0,e.r);
-        g.addColorStop(0,'#fff2f8'); g.addColorStop(0.55,c); g.addColorStop(1,'#7a1748');
-        ctx.fillStyle=g;
+        ctx.fillStyle=rg('rd'+e.r+c, 0,0,e.r*0.2,0,0,e.r,
+          [0,'#fff2f8',0.55,c,1,'#7a1748']);
         ctx.beginPath();
         for(let i=0;i<6;i++){const a=i*1.047+e.t*0.01;ctx.lineTo(Math.cos(a)*e.r,Math.sin(a)*e.r);}
         ctx.closePath(); ctx.fill();
@@ -3033,13 +3059,9 @@ function drawBoss(){
 
   neon(()=>{
     // 装甲外殻（放射グラデ・棘状多角形）。第2フェーズは白熱した危険な色味に変える
-    const shell=ctx.createRadialGradient(0,-b.r*0.3,b.r*0.2,0,0,b.r);
-    if(b.phase===2){
-      shell.addColorStop(0,'#ffffff'); shell.addColorStop(0.45,'#ffd34e'); shell.addColorStop(1,'#7a1748');
-    }else{
-      shell.addColorStop(0,'#fff2f8'); shell.addColorStop(0.5,c); shell.addColorStop(1,'#5a0f34');
-    }
-    ctx.fillStyle=shell;
+    ctx.fillStyle=rg('shell'+b.r+'_'+b.phase+c, 0,-b.r*0.3,b.r*0.2,0,0,b.r,
+      b.phase===2 ? [0,'#ffffff',0.45,'#ffd34e',1,'#7a1748']
+                  : [0,'#fff2f8',0.5,c,1,'#5a0f34']);
     ctx.beginPath();
     for(let i=0;i<10;i++){const a=i*0.6283+b.t*0.006;const rr=b.r*(i%2?0.7:1);
       ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}
@@ -3055,9 +3077,7 @@ function drawBoss(){
     ctx.save(); ctx.rotate(-b.t*0.03);
     for(let i=0;i<3;i++){
       ctx.rotate(2.094);
-      const bg=ctx.createLinearGradient(0,-b.r*0.45,0,-b.r*0.1);
-      bg.addColorStop(0,'#ffd34e'); bg.addColorStop(1,'#a8650a');
-      ctx.fillStyle=bg;
+      ctx.fillStyle=lg('bcrown'+b.r, 0,-b.r*0.45,0,-b.r*0.1, [0,'#ffd34e',1,'#a8650a']);
       ctx.beginPath();
       ctx.moveTo(-5,-b.r*0.1); ctx.lineTo(-3,-b.r*0.45); ctx.lineTo(3,-b.r*0.45); ctx.lineTo(5,-b.r*0.1);
       ctx.closePath(); ctx.fill();
@@ -3066,19 +3086,18 @@ function drawBoss(){
 
     // 発光コア（脈動）
     const pulse=0.85+Math.sin(b.t*0.08)*0.15;
-    const cg=ctx.createRadialGradient(0,0,0,0,0,b.r*0.22*pulse);
-    cg.addColorStop(0,'#ffffff'); cg.addColorStop(0.5,'#22e3ff'); cg.addColorStop(1,'rgba(34,227,255,0.1)');
-    ctx.fillStyle=cg;
-    ctx.beginPath(); ctx.arc(0,0,b.r*0.22*pulse,0,7); ctx.fill();
+    const cr=Math.max(1,Math.round(b.r*0.22*pulse));   // 1px単位に丸めて使い回す
+    ctx.fillStyle=rg('bcore'+cr, 0,0,0,0,0,cr,
+      [0,'#ffffff',0.5,'#22e3ff',1,'rgba(34,227,255,0.1)']);
+    ctx.beginPath(); ctx.arc(0,0,cr,0,7); ctx.fill();
   },b.color,28);
   ctx.restore();
   // HPバー
   const bw=W*0.7, bx=(W-bw)/2, by=26;
   ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(bx-2,by-2,bw+4,12);
   const hp=clamp(b.hp/b.maxhp,0,1);
-  const g=ctx.createLinearGradient(bx,0,bx+bw,0);
-  g.addColorStop(0,'#ff3ea5'); g.addColorStop(1,'#ffd34e');
-  ctx.fillStyle=g; ctx.fillRect(bx,by,bw*hp,8);
+  ctx.fillStyle=lg('hpbar', bx,0,bx+bw,0, [0,'#ff3ea5',1,'#ffd34e']);
+  ctx.fillRect(bx,by,bw*hp,8);
   ctx.fillStyle='#eaf6ff'; ctx.font='bold 12px monospace';
   ctx.textAlign='center'; ctx.fillText(b.name||'VOID CORE',W/2,by-6);
 }
@@ -3181,13 +3200,36 @@ function drawFloaters(){
 }
 
 /* ---------------------- HUD ---------------------- */
+/* ハートは点灯・消灯の2種類しかないので、影ぼかし込みで一度だけ描いて使い回す。 */
+const HEART_PAD=14;
+const heartSprites={};
+function heartImg(on){
+  const key=on?'on':'off';
+  if(heartSprites[key]) return heartSprites[key];
+  const size=18+HEART_PAD*2;
+  const c=document.createElement('canvas'); c.width=size+8; c.height=size;
+  const g=c.getContext('2d');
+  const hx=HEART_PAD+9, hy=HEART_PAD;      // 元の描画コードの hx,hy に対応させる
+  g.fillStyle=on?'#ff3ea5':'rgba(255,62,165,0.18)';
+  if(on){ g.shadowColor='#ff3ea5'; g.shadowBlur=10; }
+  g.beginPath();
+  g.moveTo(hx,hy+4);
+  g.bezierCurveTo(hx,hy,hx-9,hy,hx-9,hy+6);
+  g.bezierCurveTo(hx-9,hy+12,hx,hy+15,hx,hy+18);
+  g.bezierCurveTo(hx,hy+15,hx+9,hy+12,hx+9,hy+6);
+  g.bezierCurveTo(hx+9,hy,hx,hy,hx,hy+4);
+  g.fill();
+  heartSprites[key]=c;
+  return c;
+}
+
 function drawHUD(){
   if(state==='title') return;
   ctx.save();
   ctx.textAlign='left'; ctx.textBaseline='top';
   // スコア
   ctx.fillStyle='#eaf6ff'; ctx.font='bold 26px "Segoe UI",monospace';
-  neon(()=>ctx.fillText(score.toLocaleString(),18,16),'#22e3ff',10);
+  neon(()=>ctx.fillText(score.toLocaleString(),18,16),'#22e3ff',5);
   ctx.font='11px monospace'; ctx.fillStyle='#7fb0d8';
   ctx.fillText('SCORE',20,46);
 
@@ -3195,7 +3237,7 @@ function drawHUD(){
   ctx.textAlign='right';
   ctx.font='bold 13px monospace'; ctx.fillStyle='#eaf6ff';
   neon(()=>ctx.fillText('STAGE '+(stageIndex+1)+' / '+STAGES.length,W-18,16),
-    'rgb('+STAGES[stageIndex].tint+')',10);
+    'rgb('+STAGES[stageIndex].tint+')',5);
   ctx.font='10px monospace'; ctx.fillStyle='#7fb0d8';
   ctx.fillText(STAGES[stageIndex].name.replace(/^STAGE \d+ — /,''),W-18,34);
   ctx.textAlign='left';
@@ -3204,7 +3246,7 @@ function drawHUD(){
   if(combo>1){
     ctx.textAlign='center';
     ctx.font='bold 22px "Segoe UI",sans-serif'; ctx.fillStyle='#ffd34e';
-    neon(()=>ctx.fillText('x'+combo,W/2,58),'#ffd34e',10);
+    neon(()=>ctx.fillText('x'+combo,W/2,58),'#ffd34e',5);
     // タイマーバー
     ctx.fillStyle='rgba(255,211,78,0.3)'; ctx.fillRect(W/2-30,84,60,3);
     ctx.fillStyle='#ffd34e'; ctx.fillRect(W/2-30,84,60*clamp(comboTimer/110,0,1),3);
@@ -3212,18 +3254,13 @@ function drawHUD(){
   }
 
   // ライフ（ハート）
+  // 影ぼかし付きのベジェ塗りをハートの数だけ毎フレーム行っていた。
+  // 実測で drawHUD が1フレームの57%を占めており、その主因がこれだった。
+  // 形は毎回同じなので点灯・消灯の2種類を一度だけ描いておき、以後は貼るだけにする。
+  // 描いている内容は同一なので見た目は変わらない。
   for(let i=0;i<player.maxhp;i++){
-    const on=i<player.hp;
-    ctx.fillStyle=on?'#ff3ea5':'rgba(255,62,165,0.18)';
-    const hx=20+i*26, hy=H-40;
-    if(on) ctx.shadowColor='#ff3ea5', ctx.shadowBlur=10;
-    ctx.beginPath();
-    ctx.moveTo(hx,hy+4);
-    ctx.bezierCurveTo(hx,hy,hx-9,hy,hx-9,hy+6);
-    ctx.bezierCurveTo(hx-9,hy+12,hx,hy+15,hx,hy+18);
-    ctx.bezierCurveTo(hx,hy+15,hx+9,hy+12,hx+9,hy+6);
-    ctx.bezierCurveTo(hx+9,hy,hx,hy,hx,hy+4);
-    ctx.fill(); ctx.shadowBlur=0;
+    const img=heartImg(i<player.hp);
+    ctx.drawImage(img, 20+i*26-HEART_PAD-9, H-40-HEART_PAD);
   }
   // 武器レベル＋タイプ
   ctx.fillStyle='#7fb0d8'; ctx.font='11px monospace';
@@ -3239,7 +3276,7 @@ function drawHUD(){
   const gw=140, gx=W-gw-20, gy=H-30;
   ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.fillRect(gx,gy,gw,8);
   const gc = slowMo?'#a970ff':'#22e3ff';
-  ctx.fillStyle=gc; ctx.shadowColor=gc; ctx.shadowBlur=slowMo?14:6;
+  ctx.fillStyle=gc; ctx.shadowColor=gc; ctx.shadowBlur=slowMo?7:4;
   ctx.fillRect(gx,gy,gw*(slowGauge/100),8); ctx.shadowBlur=0;
   ctx.fillStyle='#7fb0d8'; ctx.font='11px monospace'; ctx.textAlign='right';
   ctx.fillText(slowMo?'BULLET TIME':'SLOW-MO',gx+gw,gy-14);
