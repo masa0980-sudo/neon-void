@@ -185,6 +185,11 @@
         <div class="diffBtn active" data-diff="normal">NORMAL</div>
         <div class="diffBtn" data-diff="hard">HARD</div>
       </div>
+      <div class="diffLabel">音質 ／ Audio</div>
+      <div class="diffRow" id="audioRow">
+        <div class="diffBtn active" data-audio="full">標準</div>
+        <div class="diffBtn" data-audio="lite">軽量</div>
+      </div>
       <button class="btn" id="startBtn">START</button>
       <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
       <div class="btnGhost" id="soundTestBtn">サウンドテスト ／ SOUND TEST</div>
@@ -701,15 +706,26 @@ const Sound = (()=>{
   // 主旋律を単音で鳴らすと薄いので、「主旋律＋ハモリ＋オクターブ下」の3声にする。
   // ハモリは必ずそのときのコード構成音（1つ下の度数）から取るので、どの音でも濁らない。
   //   deg 0=root / 1=3rd / 2=5th / 3=root+oct / 4=5th+oct
+  /* 端末の性能が足りず音が詰まったときだけ自動で立つフラグ。
+     5面は16ステップすべてでベースとリードが鳴る極端に密な構成で、
+     この2つだけで音声負荷の7割を占める。常時薄くすると音が痩せるため、
+     実際に詰まりを検知したときに限って声を減らす。 */
+  let liteAudio=false;
+  let liteLocked=false;   // ユーザーが手動で選んだら自動検知に触らせない
+  let hatCount=0;         // ハイハットを間引くための計数
   function leadVoicing(chord,deg){
     const lead=extTone(chord,deg);
     const below = deg>0 ? extTone(chord,deg-1) : chord.tones[2]-12; // 0のときは5度下
-    return [lead, below, lead-12];
+    // 軽量時はハモリを落とし、主旋律とオクターブ下だけ残す（骨格は保たれる）
+    return liteAudio ? [lead, lead-12] : [lead, below, lead-12];
   }
   // 主旋律 / ハモリ / オクターブ下 の音量比。
   // 主旋律を突出させると高音がキンキン鳴るので、あえて最上声を抑えて
   // オクターブ下を最も強くし、「和音そのものが旋律を奏でる」バランスにする。
   const VOICE_MIX=[0.72,0.72,1.0];
+  // 軽量時は2声になるため、オクターブ下が最も強いというバランスを保つ比率に差し替える
+  const VOICE_MIX_LITE=[0.72,1.0];
+  const voiceMix=()=>liteAudio?VOICE_MIX_LITE:VOICE_MIX;
 
   // リード共通の出力段。ローパスに加えて高域シェルフでも削り、耳につく帯域を抑える。
   // 戻り値の _chain には、発音後に切り離すべきノードを入れておく。
@@ -806,7 +822,9 @@ const Sound = (()=>{
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     g.connect(sh);
     const dead=[g]; let lastCore=null;
-    [[0,1.0],[-12,0.5]].forEach(([cents,lv])=>{                 // わずかにずらして唸らせる
+    // 軽量時はデチューンした2本目を省く（唸りは減るが芯とサブは残る）
+    const cores = liteAudio ? [[0,1.0]] : [[0,1.0],[-12,0.5]];
+    cores.forEach(([cents,lv])=>{                               // わずかにずらして唸らせる
       const o=ac.createOscillator();
       o.type='sawtooth'; o.frequency.value=noteFreq(semi,-2); o.detune.value=cents;
       if(lv===1.0){ o.connect(g); }                             // 等倍の声はゲインを挟まない
@@ -855,7 +873,7 @@ const Sound = (()=>{
     const bus=leadBus(t,dur,0.115,2000,0.006);
     const dead=[...bus._chain]; let last=null;
     semis.forEach((s,vi)=>{
-      const vg=ac.createGain(); vg.gain.value=VOICE_MIX[vi]||0.5; vg.connect(bus);
+      const vg=ac.createGain(); vg.gain.value=voiceMix()[vi]||0.5; vg.connect(bus);
       dead.push(vg);
       // 三角波（丸み）を主体にし、矩形波を薄く足して芯だけ残す。
       // 矩形波だけだと倍音が多すぎて高音が刺さるため。
@@ -911,7 +929,7 @@ const Sound = (()=>{
     const bus=leadBus(t,dur,0.15,1700,0.015);
     const dead=[...bus._chain]; let last=null;
     semis.forEach((s,vi)=>{
-      const vg=ac.createGain(); vg.gain.value=VOICE_MIX[vi]||0.5; vg.connect(bus);
+      const vg=ac.createGain(); vg.gain.value=voiceMix()[vi]||0.5; vg.connect(bus);
       dead.push(vg);
       // 三角波にサイン波を重ね、ベルの丸みをより強くする
       [['triangle',1.0],['sine',0.6]].forEach(([type,lv])=>{
@@ -990,7 +1008,7 @@ const Sound = (()=>{
     semis.forEach((s,vi)=>{
       const o=ac.createOscillator(), vg=ac.createGain();
       o.type='sawtooth'; o.frequency.value=noteFreq(s,1);
-      vg.gain.value=(VOICE_MIX[vi]||0.5)*0.6;   // 歪み前に入力を抑えて潰れすぎを防ぐ
+      vg.gain.value=(voiceMix()[vi]||0.5)*0.6;   // 歪み前に入力を抑えて潰れすぎを防ぐ
       o.connect(vg); vg.connect(sh);
       o.start(t); o.stop(t+dur+0.05);
       dead.push(vg); last=o;
@@ -1034,6 +1052,8 @@ const Sound = (()=>{
   }
   function hihat(t,open=false){
     const dur=open?0.22:0.045;
+    // 5面はハイハットが16ステップすべてに入る。軽量時は半分に間引く
+    if(liteAudio && (++hatCount % 2)===0) return;
     const n=noiseSource(t,dur);
     const f=sharedChain('hat',()=>{                       // ハイパスは常に同じ設定なので共有
       const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
@@ -1366,8 +1386,26 @@ const Sound = (()=>{
     /* 万一スケジューラが死んでも自動で復帰させる安全網。
        原因が何であれ「BGMが消えたまま戻らない」状態を作らない。 */
     if(bgmWatchdogId) clearInterval(bgmWatchdogId);
-    let lastStep=-1;
+    let lastStep=-1, lastWall=performance.now(), lastAudio=ac.currentTime;
+    let lagStrikes=0, okRuns=0;
     bgmWatchdogId=setInterval(()=>{
+      /* 音声時計と実時計を突き合わせ、音声が実時間についてこられているか見る。
+         端末が非力だと音声スレッドが処理落ちして音声時計が遅れ、音が途切れて聞こえる。
+         2回続けて遅れたら軽量モードに落とし、十分に回復したら戻す（往復を防ぐため差をつける）。 */
+      const w=performance.now(), a=ac.currentTime;
+      const elapsed=(w-lastWall)/1000;
+      const ratio = elapsed>0 ? (a-lastAudio)/elapsed : 1;
+      lastWall=w; lastAudio=a;
+      if(bgmTimerId && ratio>0.05 && !liteLocked){
+        if(ratio<0.97){
+          okRuns=0;
+          if(++lagStrikes>=2) liteAudio=true;
+        }else if(ratio>=0.99){
+          lagStrikes=0;
+          if(liteAudio && ++okRuns>=15) { liteAudio=false; okRuns=0; }
+        }
+      }
+
       if(!bgmTimerId) return;                  // 意図的に止めている間は何もしない
       if(currentStep===lastStep){              // 2秒間ひとつも進んでいない＝停止している
         try{ ac.resume(); }catch(e){}
@@ -1393,8 +1431,16 @@ const Sound = (()=>{
       鳴っている: !!bgmTimerId,
       音声停止: !ac || ac.state!=='running',
       音量: master ? master.gain.value : 0,
-      面: trackIndex
+      面: trackIndex,
+      軽量モード: liteAudio
     };
+  }
+  /* 軽量モードを外から切り替える。
+     ユーザーが自分で選んだ場合は liteLocked を立て、自動検知に上書きさせない
+     （軽量を選んだのに30秒後に勝手に標準へ戻る、という事故を防ぐ）。 */
+  function setLite(v,manual){
+    liteAudio=!!v;
+    if(manual) liteLocked=true;
   }
   function forceRestart(stageIdx){
     if(!ac) return;
@@ -1417,7 +1463,7 @@ const Sound = (()=>{
     win:winFanfare,
     // サウンドテスト画面のラベル表示用（STAGE_TRACKS はクロージャ内なので外から読めない）
     tracks:()=>STAGE_TRACKS.map(t=>({style:t.style,bpm:t.bpm})),
-    startBGM, stopBGM, health:bgmHealth, forceRestart
+    startBGM, stopBGM, health:bgmHealth, forceRestart, setLite
   };
 })();
 
@@ -2016,6 +2062,25 @@ document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     difficulty=btn.dataset.diff;
     document.querySelectorAll('#diffRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
+  });
+});
+
+/* 音質切替。非力な端末では5面のように音数の多い曲で音が途切れることがあるため、
+   手動で軽量化できるようにする（ハモリ・ベースの重ね・ハイハットを減らす）。
+   選択は次回以降も保持する。自動検知もあるが、それに頼らず自分で選べるようにする。 */
+try{
+  if(localStorage.getItem('neonVoidAudio')==='lite'){
+    Sound.setLite(true, true);
+    document.querySelectorAll('#audioRow .diffBtn').forEach(b=>
+      b.classList.toggle('active', b.dataset.audio==='lite'));
+  }
+}catch(e){}
+document.querySelectorAll('#audioRow .diffBtn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const lite = btn.dataset.audio==='lite';
+    Sound.setLite(lite, true);   // 手動選択なので自動検知に上書きさせない
+    try{ localStorage.setItem('neonVoidAudio', lite?'lite':'full'); }catch(e){}
+    document.querySelectorAll('#audioRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
   });
 });
 
