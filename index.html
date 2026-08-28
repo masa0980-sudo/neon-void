@@ -1383,6 +1383,28 @@ const Sound = (()=>{
     if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; }
     if(master&&ac){ master.gain.cancelScheduledValues(ac.currentTime); master.gain.setTargetAtTime(0.28,ac.currentTime,0.05); }
   }
+
+  /* BGMが鳴っているべき状況かを外から判定できるようにする。
+     上のウォッチドッグは「タイマーは生きているが進んでいない」場合しか見ておらず、
+     どこかの経路で停止された（タイマー自体が無い）場合は復帰できなかった。
+     そこでゲーム側から毎秒この関数で状態を突き合わせ、食い違っていれば鳴らし直す。 */
+  function bgmHealth(){
+    return {
+      鳴っている: !!bgmTimerId,
+      音声停止: !ac || ac.state!=='running',
+      音量: master ? master.gain.value : 0,
+      面: trackIndex
+    };
+  }
+  function forceRestart(stageIdx){
+    if(!ac) return;
+    try{ ac.resume(); }catch(e){}
+    if(master){
+      master.gain.cancelScheduledValues(ac.currentTime);
+      master.gain.setValueAtTime(0.28,ac.currentTime);   // 音量が絞られたまま固まる事故への保険
+    }
+    startBGM(typeof stageIdx==='number'?stageIdx:trackIndex);
+  }
   return {
     ensure,
     shot:sfxShot,
@@ -1395,7 +1417,7 @@ const Sound = (()=>{
     win:winFanfare,
     // サウンドテスト画面のラベル表示用（STAGE_TRACKS はクロージャ内なので外から読めない）
     tracks:()=>STAGE_TRACKS.map(t=>({style:t.style,bpm:t.bpm})),
-    startBGM, stopBGM
+    startBGM, stopBGM, health:bgmHealth, forceRestart
   };
 })();
 
@@ -1855,7 +1877,8 @@ function togglePause(){
     state='pause'; pauseScreen.classList.remove('hidden'); Sound.stopBGM();
     btnSlowMobile.classList.add('hidden');
   }else if(state==='pause'){
-    state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM();
+    pausedByFocusLoss=false;                 // 手動で再開したらフォーカス由来の扱いを解除
+    state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM(stageIndex);
     btnSlowMobile.classList.remove('hidden');
   }
 }
@@ -1869,13 +1892,37 @@ document.addEventListener('visibilitychange',()=>{
     if(stPlaying>=0) stStop();     // サウンドテストの試聴も止める
   }
 });
-// 別ウィンドウで開かれている場合はタブを離れても visibilitychange が発火しないため、
-// ウィンドウがフォーカスを失った時点でもポーズしてBGMを止める（バックグラウンド再生の防止）
+/* 別ウィンドウで開かれている場合はタブを離れても visibilitychange が発火しないため、
+   ウィンドウがフォーカスを失った時点でもポーズしてBGMを止める（バックグラウンド再生の防止）。
+
+   ただしフォーカスは通知・別アプリの割り込みなどで簡単に外れる。
+   以前は戻ってきても自動で再開せず、ポーズしたまま音だけ消えた状態が残っていた。
+   これが「プレイ中に突然BGMが切れる」の正体だったと考えられるため、
+   フォーカスが理由で止めた場合に限り、戻ってきたら自動で再開する。
+   自分でPキーを押して止めた場合は勝手に再開しない（意図を尊重する）。 */
+let pausedByFocusLoss=false;
 addEventListener('blur',()=>{
-  if(state==='play') togglePause();
+  if(state==='play'){ pausedByFocusLoss=true; togglePause(); }
   if(stPlaying>=0) stStop();
 });
+addEventListener('focus',()=>{
+  if(pausedByFocusLoss && state==='pause'){ pausedByFocusLoss=false; togglePause(); }
+});
 addEventListener('pagehide',()=>{ Sound.stopBGM(); });
+
+/* BGM監視役。
+   BGMを止める経路が複数あり（ポーズ・フォーカス喪失・面クリア・ゲームオーバー・
+   サウンドテスト）、どこかで止めたまま戻し忘れると「プレイ中なのに無音」になる。
+   原因を1つずつ潰すのではなく、あるべき状態と実際を毎秒突き合わせて直す方式にする。
+   プレイ中・画面が見えている・ポーズしていない、なら必ず鳴っているはず。 */
+setInterval(()=>{
+  if(state!=='play') return;                       // ポーズ中や画面遷移中は鳴らさなくてよい
+  if(document.visibilityState!=='visible') return; // 裏に回っている間は鳴らさない
+  const h=Sound.health();
+  if(!h.鳴っている || h.音声停止 || h.音量<0.02){
+    Sound.forceRestart(stageIndex);                // 止まっている・音量が潰れている → 鳴らし直す
+  }
+},1000);
 
 document.getElementById('startBtn').onclick=startGame;
 document.getElementById('retryBtn').onclick=startGame;
