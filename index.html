@@ -190,6 +190,7 @@
         <div class="diffBtn active" data-audio="full">標準</div>
         <div class="diffBtn" data-audio="lite">軽量</div>
       </div>
+      <div class="tag" style="opacity:.4;font-size:10px;margin:-4px 0 4px">軽量は再読み込み後に完全反映</div>
       <div class="diffLabel">画質 ／ Graphics</div>
       <div class="diffRow" id="fxRow">
         <div class="diffBtn active" data-fx="full">標準</div>
@@ -392,7 +393,33 @@ const Sound = (()=>{
   let ac=null, master=null, comp=null;
   function ensure(){
     if(!ac){
-      ac = new (window.AudioContext||window.webkitAudioContext)();
+      /* 音声バッファをやや大きめに要求する。
+         既定は遅延優先で小さめのバッファなので、主スレッドが混んだり
+         端末が非力だと1回でも処理が間に合わず音が途切れる。
+         40ms ぶん確保すると音声スレッドの猶予が数倍になり、途切れに強くなる。
+         代償は効果音がわずかに遅れることだが、体感できる差ではない。 */
+      const AC = window.AudioContext||window.webkitAudioContext;
+      /* 音質を軽量にしている場合はサンプリングレートも下げる。
+         音声処理の量はレートに正比例するため、48kHz→24kHz でDSP負荷が丸ごと半減する。
+         これは音数を削るどの対策よりも効きが大きい。
+         高音のきらめきは減るが、この曲は大半が8kHz以下なので破綻しない。
+         レートは生成時にしか指定できないため、切り替えは次回起動から反映される。 */
+      let wantLite=false;
+      try{ wantLite = localStorage.getItem('neonVoidAudio')==='lite'; }catch(e){}
+
+      /* 端末によっては音声が 96kHz で動いており（実測で確認）、
+         48kHz の倍の処理量を無駄に払っている。この曲は大半が8kHz以下なので
+         96kHz にする意味はなく、上限を48kHzに抑えるだけで負荷が半減する。
+         既定が44.1kHzの端末では余計な変換をしないようそのまま使う。 */
+      let baseRate=48000;
+      try{ const probe=new AC(); baseRate=probe.sampleRate; probe.close(); }catch(e){}
+      const target = wantLite ? 24000 : Math.min(baseRate,48000);
+
+      try{ ac = new AC({latencyHint:0.04, sampleRate:target}); }
+      catch(e){
+        try{ ac = new AC({latencyHint:0.04}); }
+        catch(e2){ ac = new AC(); }   // 未対応のブラウザは従来どおり
+      }
       master = ac.createGain(); master.gain.value=0.28;
       // マスターにコンプレッサーを挟む。和音や低音を重ねても歪まず、
       // 全体が一体に締まって「重厚さ」が出る（音圧の底上げも兼ねる）
@@ -864,8 +891,12 @@ const Sound = (()=>{
     g.gain.linearRampToValueAtTime(0.0001,t+dur);
     f.connect(g); g.connect(master);
     let lastOsc=null;
+    /* パッドは小節いっぱい鳴り続けるため、常時かかる負荷としては最大になる。
+       4音×2デチューン＝8本のノコギリ波が途切れず動く計算なので、
+       軽量時はデチューンを外して4本に半減させる（厚みは減るが和音は残る）。 */
+    const detunes = liteAudio ? [0] : [-7,7];
     tones.forEach(s=>{
-      [-7,7].forEach(cents=>{                        // 微デチューンの2声で厚みを出す
+      detunes.forEach(cents=>{                       // 微デチューンの2声で厚みを出す
         const o=ac.createOscillator();
         o.type=wave||'sawtooth'; o.frequency.value=noteFreq(s,-1); o.detune.value=cents;
         o.connect(f); o.start(t); o.stop(t+dur+0.05); lastOsc=o;
@@ -1446,7 +1477,8 @@ const Sound = (()=>{
       例外件数: schedErrors,
       例外内容: lastSchedError,
       拍: currentStep,
-      音声時刻: ac ? ac.currentTime : 0
+      音声時刻: ac ? ac.currentTime : 0,
+      レート: ac ? ac.sampleRate : 0
     };
   }
   /* 軽量モードを外から切り替える。
@@ -1995,12 +2027,14 @@ diagBox.style.cssText='position:fixed;left:8px;top:8px;z-index:9999;display:none
   'background:rgba(4,8,18,.82);color:#9fe7ff;font:12px/1.55 ui-monospace,Consolas,monospace;'+
   'padding:8px 10px;border:1px solid rgba(120,220,255,.35);border-radius:8px;white-space:pre;pointer-events:none';
 document.body.appendChild(diagBox);
-let diagOn=false, diagFrames=0, diagPrevWall=performance.now(), diagPrevAudio=0, diagPrevStep=0, diagWorst=1;
+let diagOn=false, diagFrames=0, diagPrevWall=performance.now(), diagPrevAudio=0, diagPrevStep=0;
+let diagWorst=1, diagWorstFps=999, diagMeasured=false;
 addEventListener('keydown',e=>{
   if(e.key==='F2'){
     diagOn=!diagOn;
     diagBox.style.display=diagOn?'block':'none';
-    if(diagOn){ diagWorst=1; diagPrevWall=performance.now(); const h=Sound.health(); diagPrevAudio=h.音声時刻; diagPrevStep=h.拍; }
+    if(diagOn){ diagWorst=1; diagWorstFps=999; diagMeasured=false;
+      diagPrevWall=performance.now(); const h=Sound.health(); diagPrevAudio=h.音声時刻; diagPrevStep=h.拍; }
     e.preventDefault();
   }
 });
@@ -2011,14 +2045,25 @@ setInterval(()=>{
   const sec=(w-diagPrevWall)/1000;
   const ratio = sec>0 ? (h.音声時刻-diagPrevAudio)/sec : 1;
   const steps = sec>0 ? (h.拍-diagPrevStep)/sec : 0;
-  if(ratio>0.05) diagWorst=Math.min(diagWorst,ratio);
+  const fps=Math.round(diagFrames/Math.max(sec,0.001));
+  /* 計測は「プレイ中かつBGMが鳴っている間」だけに限る。
+     ポーズ中は音を出していないため Chrome が音声デバイスを休ませることがあり、
+     音声追従が下がって見えて誤診のもとになる（実際にそれで誤読した）。 */
+  const 計測可能 = (state==='play') && h.鳴っている;
+  if(計測可能){
+    diagMeasured=true;
+    if(ratio>0.05) diagWorst=Math.min(diagWorst,ratio);
+    diagWorstFps=Math.min(diagWorstFps,fps);
+  }
   diagBox.textContent =
-    '音声追従 '+ratio.toFixed(2)+'  （最悪 '+diagWorst.toFixed(2)+'）\n'+
+    (計測可能?'':'※ プレイ中のみ計測（今は待機中）\n')+
+    '音声追従 '+ratio.toFixed(2)+'  （最悪 '+(diagMeasured?diagWorst.toFixed(2):'--')+'）\n'+
     '拍/秒    '+steps.toFixed(1)+'\n'+
-    'fps      '+Math.round(diagFrames/Math.max(sec,0.001))+'\n'+
+    'fps      '+fps+'  （最低 '+(diagMeasured?diagWorstFps:'--')+'）\n'+
     '例外     '+h.例外件数+(h.例外内容?' : '+h.例外内容:'')+'\n'+
     '音量     '+h.音量.toFixed(3)+'   音軽量 '+(h.軽量モード?'ON':'OFF')+'\n'+
     '発光     '+(lowFX?'OFF(軽量)':'ON')+'\n'+
+    '音声レート '+Math.round(h.レート/1000)+'kHz\n'+
     'BGM      '+(h.鳴っている?'再生中':'停止')+'   面 '+(h.面+1)+'\n'+
     '経過     '+Math.round(w/1000)+'秒';
   diagPrevWall=w; diagPrevAudio=h.音声時刻; diagPrevStep=h.拍; diagFrames=0;
