@@ -60,7 +60,7 @@
   #titleScreen{
     background:
       radial-gradient(120% 120% at 50% 42%,rgba(5,3,15,.22) 0%,rgba(5,3,15,.58) 55%,rgba(5,3,15,.93) 100%),
-      url('art/keyart.png') center 42%/cover no-repeat,
+      url('art/keyart.jpg') center 42%/cover no-repeat,
       radial-gradient(120% 120% at 50% 30%,rgba(12,8,36,.55),rgba(5,3,15,.9) 80%);
   }
   /* ステージクリア／ミッションクリア画面: JS側で --story-img にfal.ai生成画像を差し込む
@@ -138,6 +138,36 @@
   .howtoTitle:first-child{margin-top:0;}
   .howtoItem{font-size:13px;color:#cfe8ff;line-height:1.8;margin-bottom:6px;}
   .howtoItem b{color:var(--cyan);}
+
+  /* サウンドテスト画面 */
+  #soundTestScreen .panel{max-width:560px;max-height:70%;overflow-y:auto;text-align:left;}
+  .stRow{
+    display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none;
+    padding:9px 12px;margin-bottom:6px;border-radius:10px;
+    border:1px solid rgba(169,112,255,.28);background:rgba(12,8,36,.5);
+    transition:all .15s;
+  }
+  .stRow:hover{border-color:var(--cyan);background:rgba(34,227,255,.1);}
+  .stRow.playing{
+    border-color:transparent;
+    background:linear-gradient(90deg,rgba(34,227,255,.28),rgba(169,112,255,.28));
+    box-shadow:0 0 16px rgba(169,112,255,.45);
+  }
+  .stIcon{
+    flex:0 0 26px;height:26px;display:flex;align-items:center;justify-content:center;
+    border-radius:50%;background:rgba(34,227,255,.16);color:var(--cyan);
+    font-size:11px;font-family:monospace;
+  }
+  .stRow.playing .stIcon{background:rgba(255,255,255,.22);color:#fff;}
+  .stName{flex:1;font-size:13px;color:#eaf6ff;font-weight:700;}
+  .stMeta{font-size:11px;color:#7d6cb0;font-family:monospace;letter-spacing:.06em;}
+  .stStopRow{display:flex;justify-content:flex-end;margin-top:10px;}
+  .stStop{
+    cursor:pointer;user-select:none;padding:7px 20px;font-size:12px;font-weight:800;
+    letter-spacing:.12em;color:#ffb9d4;border:1.5px solid rgba(255,62,165,.5);
+    border-radius:20px;background:rgba(40,10,28,.5);transition:all .15s;
+  }
+  .stStop:hover{border-color:var(--magenta);color:#fff;background:rgba(255,62,165,.2);}
 </style>
 </head>
 <body>
@@ -157,7 +187,22 @@
       </div>
       <button class="btn" id="startBtn">START</button>
       <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
+      <div class="btnGhost" id="soundTestBtn">サウンドテスト ／ SOUND TEST</div>
       <div class="tag flash">CLICK / PRESS ENTER</div>
+    </div>
+
+    <!-- サウンドテスト（全5面のBGMと全効果音をその場で再生できる） -->
+    <div id="soundTestScreen" class="overlay hidden">
+      <h1 style="font-size:clamp(24px,5.5vw,40px)">SOUND TEST</h1>
+      <div class="panel">
+        <div class="howtoTitle">BGM（全5面）</div>
+        <div id="stBgmList"></div>
+        <div class="stStopRow"><div class="stStop" id="stStopBtn">■ STOP</div></div>
+
+        <div class="howtoTitle">効果音</div>
+        <div id="stSfxList"></div>
+      </div>
+      <div class="btnGhost" id="soundTestCloseBtn">とじる ／ CLOSE</div>
     </div>
 
     <!-- 操作方法（詳細） -->
@@ -197,10 +242,16 @@
         <div class="howtoItem">敵を連続で倒すと<b>コンボ</b>が増え、スコアの倍率が上がっていく。しばらく倒せないとコンボはリセットされる。</div>
 
         <div class="howtoTitle">アイテム</div>
-        <div class="howtoItem">敵を倒すと、たまにアイテムが出てくる。<b>W＝武器強化</b>（弾が増える）、<b>＋＝HP回復</b>、<b>S＝シールド</b>（被弾を1回だけ防ぐ）。</div>
+        <div class="howtoItem"><b>＋＝HP回復</b>、<b>S＝シールド</b>（被弾を1回だけ防ぐ）。</div>
+        <div class="howtoItem">
+          <b>W＝武器強化</b>：今の武器タイプのままLvが上がり弾数が増える（最大Lv4）。<br>
+          <b>⟳＝武器タイプ切替</b>：<b>散弾→貫通レーザー→ホーミング弾</b>の順で自動的に切り替わる
+          （散弾＝まっすぐ飛ぶ基本弾、レーザー＝敵を貫通する、ホーミング＝近くの敵を自動で追尾）。
+          今どのタイプかは画面下のWEAPON表示の右にピンク色で常に出ている。
+        </div>
 
         <div class="howtoTitle">ステージ</div>
-        <div class="howtoItem">全<b>3ステージ</b>構成。各ステージの最後には固有のボスが待っていて、倒すと次のステージへ進める。進むほどボスの攻撃パターンも増えていく。</div>
+        <div class="howtoItem">全<b>5ステージ</b>構成。各ステージの最後には固有のボスが待っていて、倒すと次のステージへ進める。進むほど新しい敵が現れ、ボスの攻撃パターンも増えていく。</div>
 
         <div class="howtoTitle">難易度</div>
         <div class="howtoItem">タイトル画面で<b>EASY / NORMAL / HARD</b>を選べる。HPや敵の強さが変わるだけで、遊び方は同じ。</div>
@@ -288,6 +339,8 @@ addEventListener('keydown',e=>{
   if(e.code==='Enter'){
     if(state==='title' && !howtoScreen.classList.contains('hidden')){
       howtoScreen.classList.add('hidden'); titleScreen.classList.remove('hidden');
+    }else if(state==='title' && !soundTestScreen.classList.contains('hidden')){
+      closeSoundTest();   // 試聴中にEnterでゲームが始まってしまわないようにする
     }else if(state==='title') startGame();
     else if(state==='end') startGame();
     else if(state==='stageClear') nextStage();
@@ -325,11 +378,17 @@ btnPauseMobile.addEventListener('pointerdown',e=>{ e.preventDefault(); togglePau
 
 /* ---------------------- サウンド（WebAudio） ---------------------- */
 const Sound = (()=>{
-  let ac=null, master=null;
+  let ac=null, master=null, comp=null;
   function ensure(){
     if(!ac){
       ac = new (window.AudioContext||window.webkitAudioContext)();
-      master = ac.createGain(); master.gain.value=0.28; master.connect(ac.destination);
+      master = ac.createGain(); master.gain.value=0.28;
+      // マスターにコンプレッサーを挟む。和音や低音を重ねても歪まず、
+      // 全体が一体に締まって「重厚さ」が出る（音圧の底上げも兼ねる）
+      comp = ac.createDynamicsCompressor();
+      comp.threshold.value=-15; comp.knee.value=18; comp.ratio.value=4.5;
+      comp.attack.value=0.004; comp.release.value=0.18;
+      master.connect(comp); comp.connect(ac.destination);
     }
     // モバイル（特にAndroid Chrome）は自動再生ポリシーによりAudioContextが
     // "suspended" のまま生成される。ユーザー操作の呼び出しスタック内で必ずresume()する。
@@ -339,34 +398,188 @@ const Sound = (()=>{
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='visible' && ac && ac.state==='suspended') ac.resume();
   });
-  function blip(freq,dur,type='square',vol=0.3,slide=0){
-    if(!ac) return;
-    const o=ac.createOscillator(), g=ac.createGain();
-    o.type=type; o.frequency.setValueAtTime(freq,ac.currentTime);
-    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,freq+slide),ac.currentTime+dur);
-    g.gain.setValueAtTime(vol,ac.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0008,ac.currentTime+dur);
-    o.connect(g); g.connect(master); o.start(); o.stop(ac.currentTime+dur);
+  /* 発音が終わってもノードが繋がったままだと、無音を処理し続けて負荷が積み上がる。
+     実測では実プレイ中に毎秒約207個のノードが未解放のまま増え続け、
+     数分で BGM が消える原因になっていた。
+     すべての発音関数で、音源の終了イベントに合わせてノードを切り離す。 */
+  function cleanupAfter(src,nodes){
+    if(!src) return;
+    src.onended=()=>{ for(const n of nodes){ try{ n.disconnect(); }catch(e){} } };
   }
-  function noise(dur,vol=0.4){
-    if(!ac) return;
+
+  /* ノイズ音（ハイハット・スネア・爆発など）は、以前は鳴らすたびに
+     AudioBuffer を確保して Math.random() でループ生成していた。
+     48kHzだと毎秒数万回の乱数生成と30個超のバッファ確保になり、
+     GC が頻発してメインスレッドが止まる＝BGMが途切れる主因だった。
+     面が進むほどテンポが上がる(88→176BPM)ので負荷も比例して増え、
+     3面あたりから崩れ5面で止まる、という症状に直結していた。
+     2秒分のノイズを一度だけ作り、毎回ランダムな位置を切り出して使い回す。
+     切り出し位置を変えるので、同じ音の繰り返しには聞こえない。 */
+  let NOISE_BUF=null;
+  function noiseSource(t,dur){
+    if(!NOISE_BUF){
+      const len=Math.floor(ac.sampleRate*2);
+      NOISE_BUF=ac.createBuffer(1,len,ac.sampleRate);
+      const d=NOISE_BUF.getChannelData(0);
+      for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+    }
     const n=ac.createBufferSource();
-    const buf=ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
-    n.buffer=buf;
-    const g=ac.createGain(); g.gain.value=vol;
-    const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1200;
-    n.connect(f); f.connect(g); g.connect(master); n.start();
+    n.buffer=NOISE_BUF;
+    const room=Math.max(0,NOISE_BUF.duration-dur-0.02);
+    n.start(t, Math.random()*room, dur+0.02);
+    return n;
+  }
+
+  /* 設定が固定のフィルターは、音ごとに作らず面ごとに1つだけ作って共有する。
+     計測では5面のBGMだけで毎秒306ノードを生成しており、その多くがこの手の
+     使い捨てフィルターだった。ノード生成は音声スレッドとのやり取りを伴うため
+     数が多いほど詰まりやすい。
+     ポイントは「音量エンベロープ→フィルター」の順にすること。
+     フィルターは線形なので順序を入れ替えても音は変わらないが、
+     この順ならエンベロープだけが音ごとに独立し、フィルターを共有できる
+     （逆順だと重なった音が互いのエンベロープを共有してしまい破綻する）。 */
+  function sharedChain(key,build){
+    if(!sharedFilters) sharedFilters=new Map();
+    let n=sharedFilters.get(key);
+    if(!n){ n=build(); sharedFilters.set(key,n); }
+    return n;
+  }
+  function clearSharedChains(){
+    if(sharedFilters){
+      sharedFilters.forEach(list=>{
+        (Array.isArray(list)?list:[list]).forEach(n=>{ try{ n.disconnect(); }catch(e){} });
+      });
+      sharedFilters.clear();
+    }
+  }
+
+  /* ================== 効果音の共通部品 ==================
+     従来は blip()（単発オシレータ1本）だけで作っていたため全体に軽かった。
+     どの効果音も「低い胴体」「アタックの芯」「ノイズの質感」を重ねて厚みを出し、
+     さらにローパスで高域を抑えて BGM と同じ重心に揃える。 */
+  function sfxTone(t,dur,f0,f1,type,vol,cutoff){
+    const o=ac.createOscillator(), f=ac.createBiquadFilter(), g=ac.createGain();
+    o.type=type; o.frequency.setValueAtTime(f0,t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),t+dur);
+    f.type='lowpass'; f.frequency.value=cutoff||2200;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t+dur+0.03);
+    cleanupAfter(o,[f,g]);
+  }
+  // 効果音の土台になるサブベース。飽和を通して低域に存在感を持たせる。
+  function sfxSub(t,dur,f0,f1,vol,sat){
+    const o=ac.createOscillator(), lp=ac.createBiquadFilter(), g=ac.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(f0,t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(18,f1),t+dur);
+    lp.type='lowpass'; lp.frequency.value=280;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    const extra=[];
+    if(sat){
+      // oversample は処理量が倍増するうえ、この後ローパスで高域を落とすため効果が薄い。
+      // 5面のBGMが処理落ちで減速した実績があるので 'none' で運用する。
+      const sh=ac.createWaveShaper(); sh.curve=SAT_CURVE; sh.oversample='none';
+      o.connect(sh); sh.connect(lp); extra.push(sh);
+    }else{
+      o.connect(lp);
+    }
+    lp.connect(g); g.connect(master);
+    o.start(t); o.stop(t+dur+0.03);
+    cleanupAfter(o,[...extra,lp,g]);
+  }
+  function sfxNoise(t,dur,vol,f0,f1,type,q){
+    const n=noiseSource(t,dur);
+    const f=ac.createBiquadFilter(); f.type=type||'lowpass'; f.Q.value=q||1;
+    f.frequency.setValueAtTime(f0,t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(30,f1),t+dur);
+    // 以前はバッファ側に焼き込んでいた減衰を、音量エンベロープで再現する
+    const g=ac.createGain();
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001,vol*0.008),t+dur);
+    n.connect(f); f.connect(g); g.connect(master);
+    cleanupAfter(n,[f,g]);
+  }
+
+  /* --- 各効果音 ---
+     いずれも「飽和させたサブ（重さ）」を土台に置き、その上に胴体・芯・ノイズを重ねる。
+     連射されるショットとヒットだけは、こもらないようサブを短く切る。 */
+  /* 同じ効果音が極端に短い間隔で重なっても、耳には1つに聞こえるだけで
+     ノードだけが倍々に増える（敵が同時に何体も落ちると顕著）。
+     種類ごとに最小間隔を設けて、聴こえ方を変えずに負荷だけ落とす。 */
+  const sfxLast={};
+  function sfxGate(key,minGap){
+    if(!ac) return false;
+    const now=ac.currentTime;
+    if(sfxLast[key]!==undefined && now-sfxLast[key]<minGap) return false;
+    sfxLast[key]=now;
+    return true;
+  }
+
+  function sfxShot(){        // 連射されるので短さを保ちつつ、低い突きを足す
+    // 毎秒8〜10回鳴るためBGMを覆い隠しやすい。重さは残しつつ全体を約45%下げる。
+    if(!sfxGate('shot',0.045)) return; const t=ac.currentTime;
+    sfxSub(t,0.075, 190,68, 0.13,true);
+    sfxTone(t,0.10, 420,120,'triangle',0.08,1500);
+    sfxTone(t,0.04, 760,260,'square',  0.025,1400);
+    sfxNoise(t,0.035,0.022, 2200,600,'bandpass',1.2);
+  }
+  function sfxHit(){         // 敵の発射。自機の音より鈍く低い位置に置く
+    if(!sfxGate('hit',0.04)) return; const t=ac.currentTime;
+    sfxSub(t,0.10, 130,48, 0.22,true);
+    sfxTone(t,0.10, 260,80,'triangle',0.12,1200);
+    sfxNoise(t,0.05,0.045, 1200,320,'lowpass',1);
+  }
+  function sfxBoom(){        // 撃破。長く伸びる地鳴りと胴鳴りで重量感を出す
+    // 敵がまとめて落ちると一度に何発も鳴るが、重なっても1発に聞こえる
+    if(!sfxGate('boom',0.055)) return; const t=ac.currentTime;
+    sfxSub(t,0.75, 120,26, 0.50,true);
+    sfxTone(t,0.42, 170,42,'sawtooth',0.18,600);
+    sfxTone(t+0.02,0.50, 82,58,'sine',0.22,300);      // 胴鳴り（共振）
+    sfxNoise(t,0.55,0.32, 1400,90,'lowpass',1);
+    sfxNoise(t,0.07,0.18, 4600,1500,'bandpass',1.4);
+  }
+  function sfxPower(){       // 取得。和音の各音にオクターブ下を添えて厚くする
+    if(!ac) return; const t=ac.currentTime;
+    sfxSub(t,0.50, noteFreq(0,-2), noteFreq(0,-2), 0.34,true);
+    [[0,0],[7,0.05],[12,0.10],[16,0.15]].forEach(([s,d])=>{
+      const fr=noteFreq(s,0), lo=noteFreq(s,-1);
+      sfxTone(t+d,0.40, fr,fr,'triangle',0.12,1800);
+      sfxTone(t+d,0.40, lo,lo,'sine',    0.09,700);
+    });
+  }
+  function sfxSlow(){        // バレットタイム。デチューンした下降音で時間が歪む感じを出す
+    if(!ac) return; const t=ac.currentTime;
+    sfxSub(t,0.60, 110,38, 0.32,true);
+    sfxTone(t,0.60, 430,120,'triangle',0.12,1500);
+    sfxTone(t,0.60, 420,116,'sine',    0.10,1300);
+    sfxNoise(t,0.55,0.055, 2400,300,'bandpass',1.1);
+  }
+  function sfxHurt(){        // 被弾。潰れた低音と胴鳴りで痛みを表現する
+    if(!ac) return; const t=ac.currentTime;
+    sfxSub(t,0.60, 150,28, 0.50,true);
+    sfxTone(t,0.35, 220,55,'sawtooth',0.20,700);
+    sfxTone(t+0.01,0.40, 70,48,'sine',0.22,280);      // 胴鳴り
+    sfxNoise(t,0.42,0.30, 1300,140,'lowpass',1);
   }
   // ================== ステージ別に「別の曲」となるBGMエンジン（先読みスケジューラ方式） ==================
-  // 1面=快活なチップチューン、2面=不穏で静かなドローン曲、3面=歪んだ攻撃的な曲、と
+  // 1面=快活なチップチューン、2面=不穏で静かなドローン曲、3面=うねる有機的な曲、
+  // 4面=重い行進曲、5面=歪んだ攻撃的な曲、と
   // テンポ・和声だけでなく楽器編成そのものを面ごとに変える。特定曲の引用ではなく
   // 各ジャンルのスタイルをオリジナル作曲したもの。
-  const SCHEDULE_AHEAD=0.12;         // どれだけ先までスケジュールしておくか(秒)
-  const LOOKAHEAD_MS=25;             // スケジューラの実行間隔(ms)
+  /* 先読み時間。ここが短いと、メインスレッドが一瞬でも詰まった時点で
+     予約済みの音が尽きて BGM が途切れる（かすれ・無音の原因）。
+     ゲーム中は GC・ステージ切替・画像読み込みなどで簡単に100msを超えるため、
+     0.12秒では足りなかった。0.6秒あれば大きなつまずきでも音が途切れない。
+     代償はBGM停止/切替の反応が最大0.6秒遅れることだが、実用上は問題ない。 */
+  const SCHEDULE_AHEAD=0.6;          // どれだけ先までスケジュールしておくか(秒)
+  const LOOKAHEAD_MS=50;             // スケジューラの実行間隔(ms)。頻度を下げて主スレッド負荷も減らす
   let bgmTimerId=null, nextStepTime=0, currentStep=0, stepDur=60/148/4;
-  let bgmDelay=null, bgmDelayFeedback=null, bgmDelayWet=null;
+  let bgmDelay=null, bgmDelayFeedback=null, bgmDelayWet=null, bgmWatchdogId=null;
+  let sharedFilters=null;   // 面ごとに使い回す静的フィルター群（下の sharedChain 参照）
   let trackIndex=0;
 
   // 半音オフセットはAを基準(0)としたAナチュラルマイナー・スケール上の値。
@@ -395,7 +608,29 @@ const Sound = (()=>{
       riff:[null,null,3,null, null,2,null,null, null,null,1,null, null,4,null,null],
       bass:[0], // 1小節に1回、ルート音のドローンを伸ばす
     },
-    { // Stage3 VOID CORE: style="aggressive" — 歪んだリードで攻め続ける最速トラック
+    { // Stage3 BIO LATTICE: style="pulse" — うねるワブルベース主体の有機的なトラック
+      style:'pulse', bpm:132, delayFeedback:0.34, delayWet:0.24,
+      chords:[
+        {root:0,  tones:[0,3,7]},    // Am
+        {root:10, tones:[10,13,17]}, // Gm(暗く湿った響き)
+        {root:8,  tones:[8,12,15]},  // F
+        {root:5,  tones:[5,8,12]},   // Dm
+      ],
+      riff:[null,2,null,3, null,1,2,null, null,2,null,4, 3,null,2,null],
+      bass:[0,0,null,1, 0,null,2,0, 0,0,null,1, 2,null,0,null],
+    },
+    { // Stage4 EMBER GATE: style="march" — 重い行進のリズムとブラス風スタブ
+      style:'march', bpm:156, delayFeedback:0.2, delayWet:0.12,
+      chords:[
+        {root:0,  tones:[0,3,7]},    // Am
+        {root:8,  tones:[8,12,15]},  // F
+        {root:7,  tones:[7,11,14]},  // E(メジャー)
+        {root:0,  tones:[0,3,7]},    // Am
+      ],
+      riff:[0,null,0,null, 1,null,2,null, 3,null,2,null, 1,1,null,null],
+      bass:[0,null,0,null, 0,null,0,null, 2,null,2,null, 0,null,1,null],
+    },
+    { // Stage5 VOID CORE: style="aggressive" — 歪んだリードで攻め続ける最速トラック
       style:'aggressive', bpm:176, delayFeedback:0.22, delayWet:0.14,
       chords:[
         {root:0,  tones:[0,3,7]},    // Am
@@ -414,14 +649,38 @@ const Sound = (()=>{
     return chord.tones[deg];
   }
 
-  // 波形を歪ませるカーブ（3面の攻撃的なリード用）。一度だけ計算して使い回す。
+  // 波形を歪ませるカーブ（5面の攻撃的なリード用）。一度だけ計算して使い回す。
   function makeDistortionCurve(amount){
     const n=4096, curve=new Float32Array(n);
     for(let i=0;i<n;i++){ const x=i*2/n-1; curve[i]=(3+amount)*x*20*(Math.PI/180)/(Math.PI+amount*Math.abs(x)); }
     return curve;
   }
   const DIST_CURVE=makeDistortionCurve(30);
+  /* 効果音の低域を太らせる軽い飽和。倍音が少し増えるので、
+     サブ周波数を再生しきれないノートPCやスマホのスピーカーでも「重さ」が伝わる。
+     makeDistortionCurve は入力1.0を0.35程度まで圧縮してしまい、
+     そのまま使うと「太くする」つもりが音量が痩せる（実測で確認）。
+     ここでは tanh を x=1 で正規化し、音量を保ったまま倍音だけ足す。 */
+  function makeSatCurve(drive){
+    const n=4096, c=new Float32Array(n), norm=Math.tanh(drive);
+    for(let i=0;i<n;i++){ const x=i*2/n-1; c[i]=Math.tanh(drive*x)/norm; }
+    return c;
+  }
+  const SAT_CURVE=makeSatCurve(2.2);
+  // 5面リード用。和音をまとめて1つに通すので、強く歪ませると混変調で濁る。
+  // ドライブを控えめにし、音量が痩せないよう正規化しておく。
+  const GROWL_CURVE=makeSatCurve(3.4);
 
+  /* 面ごとにBGMの土台を作り直す。
+     ディレイは帰還ループを持つため、作りっぱなしだと前の面の残響が
+     いつまでも回り続け、面を進むほど土台が汚れていく。
+     ステージ切替のたびに捨てて新品にすれば、常に同じ状態から始められる。
+     作り直すノードは3個だけなので負荷は無視できる。 */
+  function teardownBus(){
+    clearSharedChains();   // 共有フィルターも作り直す（新しいディレイに繋ぎ替えるため）
+    [bgmDelay,bgmDelayFeedback,bgmDelayWet].forEach(n=>{ if(n){ try{ n.disconnect(); }catch(e){} } });
+    bgmDelay=bgmDelayFeedback=bgmDelayWet=null;
+  }
   function setupBus(){
     if(!bgmDelay){
       bgmDelay=ac.createDelay(1.0);
@@ -436,32 +695,181 @@ const Sound = (()=>{
     bgmDelayWet.gain.value=track.delayWet;
   }
 
-  function synthNote(freq,t,dur,type,vol,filterFreq,toDelay){
-    const o=ac.createOscillator(), g=ac.createGain(), f=ac.createBiquadFilter();
-    o.type=type; o.frequency.setValueAtTime(freq,t);
-    f.type='lowpass'; f.frequency.value=filterFreq||4000;
+  // 和音を1オクターブ上のルートで補強して厚みを出す（全スタイル共通）
+  const fullChord=c=>c.tones.concat([c.tones[0]+12]);
+
+  // 主旋律を単音で鳴らすと薄いので、「主旋律＋ハモリ＋オクターブ下」の3声にする。
+  // ハモリは必ずそのときのコード構成音（1つ下の度数）から取るので、どの音でも濁らない。
+  //   deg 0=root / 1=3rd / 2=5th / 3=root+oct / 4=5th+oct
+  function leadVoicing(chord,deg){
+    const lead=extTone(chord,deg);
+    const below = deg>0 ? extTone(chord,deg-1) : chord.tones[2]-12; // 0のときは5度下
+    return [lead, below, lead-12];
+  }
+  // 主旋律 / ハモリ / オクターブ下 の音量比。
+  // 主旋律を突出させると高音がキンキン鳴るので、あえて最上声を抑えて
+  // オクターブ下を最も強くし、「和音そのものが旋律を奏でる」バランスにする。
+  const VOICE_MIX=[0.72,0.72,1.0];
+
+  // リード共通の出力段。ローパスに加えて高域シェルフでも削り、耳につく帯域を抑える。
+  // 戻り値の _chain には、発音後に切り離すべきノードを入れておく。
+  // ローパス＋ハイシェルフは設定が固定なので面ごとに1組だけ作って共有する
+  function leadFilterIn(cutoff){
+    return sharedChain('lead'+cutoff,()=>{
+      const lp=ac.createBiquadFilter(), hs=ac.createBiquadFilter();
+      lp.type='lowpass';   lp.frequency.value=cutoff; lp.Q.value=0.6;
+      hs.type='highshelf'; hs.frequency.value=2100;   hs.gain.value=-8;
+      lp.connect(hs); hs.connect(master);
+      if(bgmDelay) hs.connect(bgmDelay);   // 余韻はフィルター後に送る
+      return [lp,hs];
+    })[0];
+  }
+  function leadBus(t,dur,peak,cutoff,attack){
+    // 音ごとに作るのは音量エンベロープだけ（従来は3ノード → 1ノード）
+    const g=ac.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(peak,t+(attack||0.008));
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    g.connect(leadFilterIn(cutoff));
+    g._chain=[g];
+    return g;
+  }
+
+  // 全スタイル共通のベース：のこぎり波（芯）＋1オクターブ下のサイン波（重み）を重ねる。
+  // 単発のこぎり波だけだと軽く聞こえるため、サブを足して土台を作る。
+  /* ---------- 面ごとに性格を変えたベース ----------
+     以前は1面・4面・5面が同じ bassNote を共有していて低音が没個性だった。
+     サブ（サイン波）は必ず歪ませずに通し、芯の部分だけ面ごとに作り分ける。
+       1面 pluck : レゾナンスの効いたフィルタが急速に閉じる「弾む」ベース
+       4面 brass : ゆっくり立ち上がり長く伸びる、低音金管のような行進ベース
+       5面 dist  : 芯を歪ませたざらつくベース（サブはクリーンのまま） */
+  function pluckBass(semi,t,dur,vol){
+    const f=ac.createBiquadFilter(), g=ac.createGain();
+    f.type='lowpass'; f.Q.value=8;
+    f.frequency.setValueAtTime(1600,t);
+    f.frequency.exponentialRampToValueAtTime(240,t+dur*0.55);   // 急速に閉じる＝弾む
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.8);      // 短めに切る
+    f.connect(g); g.connect(master);
+    const o1=ac.createOscillator(); o1.type='sawtooth'; o1.frequency.value=noteFreq(semi,-2);
+    o1.connect(f); o1.start(t); o1.stop(t+dur+0.05);
+    // サブ: 素早く減衰させて「トン」と弾む短い重低音にする
+    const o2=ac.createOscillator(); o2.type='sine'; o2.frequency.value=noteFreq(semi,-3);
+    const sg=ac.createGain();
+    sg.gain.setValueAtTime(vol*1.55,t);
+    sg.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.42);
+    o2.connect(sg); sg.connect(master);
+    o2.start(t); o2.stop(t+dur+0.05);
+    cleanupAfter(o1,[f,g]); cleanupAfter(o2,[sg]);
+  }
+  function brassBass(semi,t,dur,vol){
+    const f=ac.createBiquadFilter(), g=ac.createGain();
+    f.type='lowpass'; f.Q.value=0.7; f.frequency.value=480;     // レゾナンス無しで丸く重い
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+0.055);                // ゆっくり立ち上げる
+    g.gain.setValueAtTime(vol,t+dur*0.62);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    f.connect(g); g.connect(master);
+    const dead=[f,g]; let lastCore=null;
+    [['sawtooth',-2,1.0],['square',-2,0.45]].forEach(([type,oct,lv])=>{
+      const o=ac.createOscillator(), og=ac.createGain();
+      o.type=type; o.frequency.value=noteFreq(semi,oct); og.gain.value=lv;
+      o.connect(og); og.connect(f); o.start(t); o.stop(t+dur+0.05);
+      dead.push(og); lastCore=o;
+    });
+    // サブ: ゆっくり立ち上げて長く保持する「壁」のような重低音
+    const o2=ac.createOscillator(); o2.type='sine'; o2.frequency.value=noteFreq(semi,-3);
+    const sg=ac.createGain();
+    sg.gain.setValueAtTime(0.0001,t);
+    sg.gain.linearRampToValueAtTime(vol*0.6,t+0.06);
+    sg.gain.setValueAtTime(vol*0.6,t+dur*0.7);
+    sg.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o2.connect(sg); sg.connect(master);
+    o2.start(t); o2.stop(t+dur+0.05);
+    cleanupAfter(lastCore,dead); cleanupAfter(o2,[sg]);
+  }
+  function distBass(semi,t,dur,vol){
+    /* 歪み回路とローパスは設定が固定なので面ごとに1組だけ作って共有する。
+       distBass は5面で毎秒60ノードを作る最大の消費源だった。
+       エンベロープを歪みの前に置く形になるため、減衰部の歪みがごくわずかに
+       浅くなるが、立ち上がりが12msと速く発音も短いため聴感上の差はほぼ無い。 */
+    const sh=sharedChain('distbass',()=>{
+      const sh=ac.createWaveShaper(); sh.curve=SAT_CURVE; sh.oversample='none';
+      const f=ac.createBiquadFilter(); f.type='lowpass'; f.Q.value=2.5; f.frequency.value=1200;
+      sh.connect(f); f.connect(master);
+      return [sh,f];
+    })[0];
+    const g=ac.createGain();
     g.gain.setValueAtTime(0.0001,t);
     g.gain.exponentialRampToValueAtTime(vol,t+0.012);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    o.connect(f); f.connect(g); g.connect(master);
-    if(toDelay) g.connect(bgmDelay);
-    o.start(t); o.stop(t+dur+0.05);
+    g.connect(sh);
+    const dead=[g]; let lastCore=null;
+    [[0,1.0],[-12,0.5]].forEach(([cents,lv])=>{                 // わずかにずらして唸らせる
+      const o=ac.createOscillator();
+      o.type='sawtooth'; o.frequency.value=noteFreq(semi,-2); o.detune.value=cents;
+      if(lv===1.0){ o.connect(g); }                             // 等倍の声はゲインを挟まない
+      else { const og=ac.createGain(); og.gain.value=lv; o.connect(og); og.connect(g); dead.push(og); }
+      o.start(t); o.stop(t+dur+0.05);
+      lastCore=o;
+    });
+    // サブ: 高い位置から一気に落として「ドロップ」させ、獰猛な重低音にする
+    const o2=ac.createOscillator(); o2.type='sine';
+    o2.frequency.setValueAtTime(noteFreq(semi,-2),t);
+    o2.frequency.exponentialRampToValueAtTime(noteFreq(semi,-3),t+dur*0.3);
+    const sg=ac.createGain();
+    sg.gain.setValueAtTime(vol*1.45,t);
+    sg.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.85);
+    o2.connect(sg); sg.connect(master);                         // サブは歪ませず輪郭を保つ
+    o2.start(t); o2.stop(t+dur+0.05);
+    cleanupAfter(lastCore,dead); cleanupAfter(o2,[sg]);         // WaveShaperを残さない
+  }
+
+  // 持続和音（低域のパッド）。波形を面ごとに変えて質感の差を出す。
+  function sustainPad(tones,t,dur,vol,wave){
+    const f=ac.createBiquadFilter(), g=ac.createGain();
+    f.type='lowpass';
+    f.frequency.setValueAtTime(650,t);
+    f.frequency.linearRampToValueAtTime(1250,t+dur*0.5);
+    f.frequency.linearRampToValueAtTime(600,t+dur);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+dur*0.18);
+    g.gain.setValueAtTime(vol,t+dur*0.72);
+    g.gain.linearRampToValueAtTime(0.0001,t+dur);
+    f.connect(g); g.connect(master);
+    let lastOsc=null;
+    tones.forEach(s=>{
+      [-7,7].forEach(cents=>{                        // 微デチューンの2声で厚みを出す
+        const o=ac.createOscillator();
+        o.type=wave||'sawtooth'; o.frequency.value=noteFreq(s,-1); o.detune.value=cents;
+        o.connect(f); o.start(t); o.stop(t+dur+0.05); lastOsc=o;
+      });
+    });
+    cleanupAfter(lastOsc,[f,g]);
   }
 
   // 1面用リード：わずかにデチューンした2発振をユニゾンさせ、PSG(往年のチップ)風の
   // 太い矩形波リードにする。減衰を速くして「走る」歯切れの良さを出す。
-  function leadNote(freq,t,dur){
-    const g=ac.createGain(), f=ac.createBiquadFilter();
-    f.type='lowpass'; f.frequency.value=3400;
-    g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(0.11,t+0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    f.connect(g); g.connect(master); g.connect(bgmDelay);
-    [0,-9].forEach(cents=>{
-      const o=ac.createOscillator();
-      o.type='square'; o.frequency.value=freq; o.detune.value=cents;
-      o.connect(f); o.start(t); o.stop(t+dur+0.05);
+  function leadNote(semis,t,dur){
+    const bus=leadBus(t,dur,0.115,2000,0.006);
+    const dead=[...bus._chain]; let last=null;
+    semis.forEach((s,vi)=>{
+      const vg=ac.createGain(); vg.gain.value=VOICE_MIX[vi]||0.5; vg.connect(bus);
+      dead.push(vg);
+      // 三角波（丸み）を主体にし、矩形波を薄く足して芯だけ残す。
+      // 矩形波だけだと倍音が多すぎて高音が刺さるため。
+      // 音量1.0の声はゲインを挟まず直結し、1音あたりのノード数を抑える
+      // （生成するノードが多いほど音声グラフの更新が重くなり、途切れの原因になる）。
+      [['triangle',0,1.0],['square',-9,0.4]].forEach(([type,cents,lv])=>{
+        const o=ac.createOscillator();
+        o.type=type; o.frequency.value=noteFreq(s,1); o.detune.value=cents;
+        if(lv===1.0){ o.connect(vg); }
+        else { const og=ac.createGain(); og.gain.value=lv; o.connect(og); og.connect(vg); dead.push(og); }
+        o.start(t); o.stop(t+dur+0.05); last=o;
+      });
     });
+    cleanupAfter(last,dead);
   }
 
   // 1面用：短くパンチの効いたコード打ち（アーケード曲らしい歯切れの良さ）
@@ -473,11 +881,13 @@ const Sound = (()=>{
     pg.gain.linearRampToValueAtTime(0.15,t+0.008);
     pg.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     pf.connect(pg); pg.connect(master);
+    let lastOsc=null;
     tones.forEach(semi=>{
       const o=ac.createOscillator();
       o.type='square'; o.frequency.value=noteFreq(semi,0);
-      o.connect(pf); o.start(t); o.stop(t+dur+0.05);
+      o.connect(pf); o.start(t); o.stop(t+dur+0.05); lastOsc=o;
     });
+    cleanupAfter(lastOsc,[pf,pg]);
   }
 
   // 2面用：ゆっくり明滅するサブベース・ドローン（LFOで周波数を微妙に揺らし不穏さを出す）
@@ -493,45 +903,99 @@ const Sound = (()=>{
     g.gain.linearRampToValueAtTime(0.0001,t+dur);
     o.connect(g); g.connect(master);
     o.start(t); lfo.start(t); o.stop(t+dur+0.05); lfo.stop(t+dur+0.05);
+    cleanupAfter(o,[g,lfoGain]);
   }
 
   // 2面用：三角波のベルのような、間を活かしたリード。ディレイを深くかけて空間の広さを出す
-  function bellLead(freq,t,dur){
-    const o=ac.createOscillator(), g=ac.createGain(), f=ac.createBiquadFilter();
-    o.type='triangle'; o.frequency.setValueAtTime(freq,t);
-    f.type='lowpass'; f.frequency.value=2200;
-    g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(0.15,t+0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    o.connect(f); f.connect(g); g.connect(master); g.connect(bgmDelay);
-    o.start(t); o.stop(t+dur+0.05);
+  function bellLead(semis,t,dur){
+    const bus=leadBus(t,dur,0.15,1700,0.015);
+    const dead=[...bus._chain]; let last=null;
+    semis.forEach((s,vi)=>{
+      const vg=ac.createGain(); vg.gain.value=VOICE_MIX[vi]||0.5; vg.connect(bus);
+      dead.push(vg);
+      // 三角波にサイン波を重ね、ベルの丸みをより強くする
+      [['triangle',1.0],['sine',0.6]].forEach(([type,lv])=>{
+        const o=ac.createOscillator();
+        o.type=type; o.frequency.setValueAtTime(noteFreq(s,1),t);
+        if(lv===1.0){ o.connect(vg); }
+        else { const og=ac.createGain(); og.gain.value=lv; o.connect(og); og.connect(vg); dead.push(og); }
+        o.start(t); o.stop(t+dur+0.05); last=o;
+      });
+    });
+    cleanupAfter(last,dead);
   }
 
   // 2面用：フィルターを通したノイズの「風」。息をひそめるような気配を薄く敷く
   function windSwell(t,dur,freq){
-    const buf=ac.createBuffer(1,Math.max(1,Math.floor(ac.sampleRate*dur)),ac.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
-    const n=ac.createBufferSource(); n.buffer=buf;
+    const n=noiseSource(t,dur);
     const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq||500; f.Q.value=0.7;
     const g=ac.createGain();
     g.gain.setValueAtTime(0.0001,t);
     g.gain.linearRampToValueAtTime(0.045,t+dur*0.4);
     g.gain.linearRampToValueAtTime(0.0001,t+dur);
-    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+    n.connect(f); f.connect(g); g.connect(master);
+    cleanupAfter(n,[f,g]);
   }
 
-  // 3面用：歪ませたのこぎり波リード。攻撃的でざらついた質感を出す
-  function growlLead(freq,t,dur){
-    const o=ac.createOscillator(), sh=ac.createWaveShaper(), f=ac.createBiquadFilter(), g=ac.createGain();
+  // 3面用：ローパスをLFOで揺らす「ワブルベース」。有機的にうねる質感を出す
+  function wobbleBass(freq,t,dur){
+    const o=ac.createOscillator(), f=ac.createBiquadFilter(), g=ac.createGain();
+    const lfo=ac.createOscillator(), lfoGain=ac.createGain();
     o.type='sawtooth'; o.frequency.value=freq;
-    sh.curve=DIST_CURVE; sh.oversample='2x';
-    f.type='lowpass'; f.frequency.value=3800;
+    f.type='lowpass'; f.frequency.value=520; f.Q.value=9;
+    lfo.type='sine'; lfo.frequency.value=6.2;      // 1音の中で数回うねらせる
+    lfoGain.gain.value=380;
+    lfo.connect(lfoGain); lfoGain.connect(f.frequency);
     g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(0.13,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.2,t+0.02);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    o.connect(sh); sh.connect(f); f.connect(g); g.connect(master); g.connect(bgmDelay);
-    o.start(t); o.stop(t+dur+0.05);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); lfo.start(t); o.stop(t+dur+0.05); lfo.stop(t+dur+0.05);
+    cleanupAfter(o,[f,g,lfoGain]);
+  }
+
+  // 4面用：ブラス風スタブ。フィルターを開いてすぐ閉じ、重い一撃感を出す
+  function brassStab(tones,t,dur){
+    const f=ac.createBiquadFilter(), g=ac.createGain();
+    f.type='lowpass';
+    f.frequency.setValueAtTime(420,t);
+    f.frequency.linearRampToValueAtTime(2600,t+0.05);
+    f.frequency.exponentialRampToValueAtTime(500,t+dur);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(0.13,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    f.connect(g); g.connect(master);
+    let lastOsc=null;
+    tones.forEach(semi=>{
+      [-7,7].forEach(cents=>{                      // 微デチューンで厚みを出す
+        const o=ac.createOscillator();
+        o.type='sawtooth'; o.frequency.value=noteFreq(semi,0); o.detune.value=cents;
+        o.connect(f); o.start(t); o.stop(t+dur+0.05); lastOsc=o;
+      });
+    });
+    cleanupAfter(lastOsc,[f,g]);
+  }
+
+  // 5面用：歪ませたのこぎり波リード。攻撃的でざらついた質感を出す
+  function growlLead(semis,t,dur){
+    // 歪みは倍音を大量に足すので、他のリードよりさらに低い帯域で切る
+    const bus=leadBus(t,dur,0.125,1750,0.006);
+    // 以前は「混変調を避ける」ため声ごとに歪み回路を作っていたが、
+    // 5面は riff・bass とも16ステップすべて発音するため WaveShaper が毎秒48個生成され、
+    // オーディオスレッドが破綻して曲が減速していた（実測: 実時間の38%の速度）。
+    // 1音につき歪みは1つに統一し、ドライブを下げて濁りを抑える。
+    const sh=ac.createWaveShaper(); sh.curve=GROWL_CURVE; sh.oversample='none';
+    sh.connect(bus);
+    const dead=[sh,...bus._chain]; let last=null;
+    semis.forEach((s,vi)=>{
+      const o=ac.createOscillator(), vg=ac.createGain();
+      o.type='sawtooth'; o.frequency.value=noteFreq(s,1);
+      vg.gain.value=(VOICE_MIX[vi]||0.5)*0.6;   // 歪み前に入力を抑えて潰れすぎを防ぐ
+      o.connect(vg); vg.connect(sh);
+      o.start(t); o.stop(t+dur+0.05);
+      dead.push(vg); last=o;
+    });
+    cleanupAfter(last,dead);
   }
 
   function duck(t,amount=0.15){
@@ -549,31 +1013,35 @@ const Sound = (()=>{
     g.gain.setValueAtTime(soft?0.32:0.5,t);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
     o.connect(g); g.connect(master); o.start(t); o.stop(t+0.22);
+    cleanupAfter(o,[g]);
     duck(t,soft?0.2:0.15);
   }
   function snareDrum(t,soft=false){
-    const buf=ac.createBuffer(1,Math.max(1,ac.sampleRate*0.18),ac.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
-    const n=ac.createBufferSource(); n.buffer=buf;
-    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=soft?2200:1500;
+    const n=noiseSource(t,0.18);
+    const f=sharedChain(soft?'snareSoft':'snare',()=>{     // 2種類とも設定は固定なので共有
+      const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=soft?2200:1500;
+      f.connect(master); return f;
+    });
     const g=ac.createGain(); g.gain.setValueAtTime(soft?0.14:0.32,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.15);
-    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+    n.connect(g); g.connect(f);
+    cleanupAfter(n,[g]);
     if(!soft){
       const o=ac.createOscillator(); o.type='triangle'; o.frequency.value=190;
       const og=ac.createGain(); og.gain.setValueAtTime(0.14,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.1);
       o.connect(og); og.connect(master); o.start(t); o.stop(t+0.12);
+      cleanupAfter(o,[og]);
     }
   }
   function hihat(t,open=false){
     const dur=open?0.22:0.045;
-    const buf=ac.createBuffer(1,Math.max(1,ac.sampleRate*dur),ac.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
-    const n=ac.createBufferSource(); n.buffer=buf;
-    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
+    const n=noiseSource(t,dur);
+    const f=sharedChain('hat',()=>{                       // ハイパスは常に同じ設定なので共有
+      const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
+      f.connect(master); return f;
+    });
     const g=ac.createGain(); g.gain.setValueAtTime(open?0.09:0.06,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
-    n.connect(f); f.connect(g); g.connect(master); n.start(t);
+    n.connect(g); g.connect(f);
+    cleanupAfter(n,[g]);
   }
 
   // ---- 1面「bright」：快活に駆け抜けるチップチューン ----
@@ -586,11 +1054,12 @@ const Sound = (()=>{
     const bDeg=track.bass[s];
     if(bDeg!==null){
       const semi=chord.root+(bDeg===1?12:bDeg===2?7:0);
-      synthNote(noteFreq(semi,-2),t,stepDur*1.9,'sawtooth',0.19,950,false);
+      pluckBass(semi,t,stepDur*1.9,0.2);                            // 弾む低音
     }
-    if(s===0||s===8) stabChord(chord.tones,t,stepDur*2.2);
+    if(s===0) sustainPad(fullChord(chord),t,stepDur*16*0.96,0.05,'sawtooth');
+    if(s===0||s===8) stabChord(fullChord(chord),t,stepDur*2.2);
     const deg=track.riff[s];
-    if(deg!==null) leadNote(noteFreq(extTone(chord,deg),1),t,stepDur*0.92);
+    if(deg!==null) leadNote(leadVoicing(chord,deg),t,stepDur*0.92);
   }
 
   // ---- 2面「dark」：静かに沈むドローン主体のアンビエント ----
@@ -601,17 +1070,20 @@ const Sound = (()=>{
     if(s===12) snareDrum(t,true); // 銃声のような遠いリムショット1発だけ
     if(s===6||s===14) hihat(t,true); // 開いたハイハットで空気の揺れを表現
 
-    // 1小節の頭だけ、根音を長く伸ばすサブベース・ドローン
-    if(s===0) subDrone(noteFreq(chord.root,-1),t,stepDur*15.5);
+    // 1小節の頭だけ、根音を長く伸ばすサブベース・ドローン＋和音の層
+    if(s===0){
+      subDrone(noteFreq(chord.root,-1),t,stepDur*15.5);
+      sustainPad(fullChord(chord),t,stepDur*15.5,0.055,'triangle');  // 静かな面は柔らかい波形で
+    }
     // 半小節ごとにノイズの「風」を薄く重ねる
     if(s===0||s===8) windSwell(t,stepDur*8,220+chord.root*8);
 
     // 間を活かしたベル・リード（ディレイでこだまする）
     const deg=track.riff[s];
-    if(deg!==null) bellLead(noteFreq(extTone(chord,deg),1),t,stepDur*3.2);
+    if(deg!==null) bellLead(leadVoicing(chord,deg),t,stepDur*3.2);
   }
 
-  // ---- 3面「aggressive」：歪んだリードで攻め続ける ----
+  // ---- 5面「aggressive」：歪んだリードで攻め続ける ----
   function scheduleAggressive(track,chord,s,t,bossFight){
     if(s%4===0) kickDrum(t);
     if(s===2||s===10) kickDrum(t); // 裏にもキックを足して疾走感を強化
@@ -622,11 +1094,73 @@ const Sound = (()=>{
     const bDeg=track.bass[s];
     if(bDeg!==null){
       const semi=chord.root+(bDeg===1?12:bDeg===2?7:0);
-      synthNote(noteFreq(semi,-2),t,stepDur*1.9,'sawtooth',0.19,950,false);
+      distBass(semi,t,stepDur*1.9,0.21);                            // ざらついた低音
     }
-    if(s%4===0) stabChord(chord.tones,t,stepDur*1.8); // 4分ごとに連打して緊張を切らさない
+    if(s===0) sustainPad(fullChord(chord),t,stepDur*16*0.96,0.06,'sawtooth');
+    if(s%4===0) stabChord(fullChord(chord),t,stepDur*1.8); // 4分ごとに連打して緊張を切らさない
     const deg=track.riff[s];
-    if(deg!==null) growlLead(noteFreq(extTone(chord,deg),1),t,stepDur*0.92);
+    if(deg!==null) growlLead(leadVoicing(chord,deg),t,stepDur*0.92);
+  }
+
+  // ---- 3面「pulse」：うねるワブルベース主体の有機的なトラック ----
+  function schedulePulse(track,chord,s,t,bossFight){
+    // シンコペーションしたキックで「脈打つ」感じを出す
+    if(s===0||s===6||s===10) kickDrum(t);
+    if(s===4||s===12) snareDrum(t,true);
+    if(s%2===1) hihat(t,s===7||s===15);
+    if(bossFight && s%4===2) hihat(t,false);
+
+    const bDeg=track.bass[s];
+    if(bDeg!==null){
+      const semi=chord.root+(bDeg===1?12:bDeg===2?7:0);
+      wobbleBass(noteFreq(semi,-2),t,stepDur*1.6);
+    }
+    if(s===0){
+      padChordSoft(chord.tones,t,stepDur*16*0.9);
+      sustainPad(fullChord(chord),t,stepDur*16*0.9,0.055,'triangle');  // 有機的な面も柔らかく
+    }
+    const deg=track.riff[s];
+    if(deg!==null) bellLead(leadVoicing(chord,deg),t,stepDur*2.4);
+  }
+
+  // pulse用の柔らかいパッド（サステインで有機的な空気を作る）
+  function padChordSoft(tones,t,dur){
+    const pg=ac.createGain(), pf=ac.createBiquadFilter();
+    pf.type='lowpass';
+    pf.frequency.setValueAtTime(600,t);
+    pf.frequency.linearRampToValueAtTime(1500,t+dur*0.5);
+    pf.frequency.linearRampToValueAtTime(500,t+dur);
+    pg.gain.setValueAtTime(0.0001,t);
+    pg.gain.linearRampToValueAtTime(0.045,t+dur*0.3);
+    pg.gain.linearRampToValueAtTime(0.0001,t+dur);
+    pf.connect(pg); pg.connect(master);
+    let lastOsc=null;
+    tones.forEach(semi=>{
+      const o=ac.createOscillator();
+      o.type='triangle'; o.frequency.value=noteFreq(semi,0);
+      o.connect(pf); o.start(t); o.stop(t+dur+0.05); lastOsc=o;
+    });
+    cleanupAfter(lastOsc,[pf,pg]);
+  }
+
+  // ---- 4面「march」：重い行進のリズムとブラス風スタブ ----
+  function scheduleMarch(track,chord,s,t,bossFight){
+    if(s%4===0) kickDrum(t);
+    if(s===7||s===15) kickDrum(t);            // 行進の踏み込みを足す
+    if(s===4||s===12) snareDrum(t);
+    if(s===6||s===14) snareDrum(t,true);      // 装飾のロール
+    if(s%2===0) hihat(t,false);
+    if(bossFight && s%4===3) hihat(t,true);
+
+    const bDeg=track.bass[s];
+    if(bDeg!==null){
+      const semi=chord.root+(bDeg===1?12:bDeg===2?7:0);
+      brassBass(semi,t,stepDur*2.4,0.18);                           // 重い行進の低音
+    }
+    if(s===0) sustainPad(fullChord(chord),t,stepDur*16*0.96,0.06,'square');
+    if(s===0||s===8) brassStab(fullChord(chord),t,stepDur*3.2);
+    const deg=track.riff[s];
+    if(deg!==null) leadNote(leadVoicing(chord,deg),t,stepDur*1.5);
   }
 
   function scheduleStep(stepIdx,t){
@@ -636,16 +1170,186 @@ const Sound = (()=>{
     const bossFight = typeof boss!=='undefined' && !!boss; // ボス戦は少しだけ密度を上げる
 
     if(track.style==='dark') scheduleDark(track,chord,s,t,bossFight);
+    else if(track.style==='pulse') schedulePulse(track,chord,s,t,bossFight);
+    else if(track.style==='march') scheduleMarch(track,chord,s,t,bossFight);
     else if(track.style==='aggressive') scheduleAggressive(track,chord,s,t,bossFight);
     else scheduleBright(track,chord,s,t,bossFight);
   }
 
   function schedulerLoop(){
-    while(nextStepTime<ac.currentTime+SCHEDULE_AHEAD){
-      scheduleStep(currentStep,nextStepTime);
+    const now=ac.currentTime;
+
+    /* 主スレッドが詰まると nextStepTime が現在時刻より後ろに取り残される。
+       そのまま追いつこうとすると、遅れた分の音符（5面は176BPMなので2秒で約23ステップ）を
+       一度に予約してしまい、過去時刻の音が同時発火して音が団子になる。
+       しかもノードが一気に数百個生まれて音声スレッドをさらに圧迫し、
+       「詰まる→まとめ予約→もっと詰まる」の悪循環になる。
+       これがBGMが数分で途切れる・かすれる原因だった。
+       大きく遅れた場合は追いつくのを諦め、現在時刻へ飛ばして拍を取り直す。 */
+    if(nextStepTime < now - 0.05){
+      const skip=Math.ceil((now-nextStepTime)/stepDur);
+      currentStep+=skip;
+      nextStepTime+=skip*stepDur;
+    }
+
+    /* 万一それでも大量に溜まった場合に備えて1回あたりの予約数も制限する */
+    let guard=0;
+    while(nextStepTime < now+SCHEDULE_AHEAD && guard++ < 32){
+      // 1音の失敗でスケジューラ全体が止まると以後ずっと無音になるため、必ず握る
+      try{ scheduleStep(currentStep,nextStepTime); }catch(err){ /* この音だけ捨てて続行 */ }
       nextStepTime+=stepDur;
       currentStep++;
     }
+  }
+
+  /* ---------- ミッションクリアのファンファーレ ----------
+     速いテンポ・明るいフィルター・短い尺だと「ポップ」に聞こえてしまうため、
+     ゆっくり立ち上げ・倍音を抑え・低域を厚くして荘厳さを出す。 */
+  function fanfareChord(semis,t,dur,vol,attack,bright){
+    const f=ac.createBiquadFilter(), g=ac.createGain();
+    const atk=attack||0.05, top=bright||2100;   // 開きすぎると軽く明るくなる
+    f.type='lowpass';
+    f.frequency.setValueAtTime(360,t);
+    f.frequency.linearRampToValueAtTime(top,t+Math.max(atk,0.12));
+    f.frequency.exponentialRampToValueAtTime(700,t+dur);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+atk);
+    g.gain.setValueAtTime(vol,t+dur*0.62);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    f.connect(g); g.connect(master);
+    if(bgmDelay) g.connect(bgmDelay);          // 余韻（残響のかわり）
+    semis.forEach(s=>{
+      [-11,0,11].forEach(cents=>{              // 3声ユニゾンで分厚くする
+        const o=ac.createOscillator();
+        o.type='sawtooth'; o.frequency.value=noteFreq(s,0); o.detune.value=cents;
+        o.connect(f); o.start(t); o.stop(t+dur+0.06);
+      });
+    });
+  }
+  function fanfareSub(semi,t,dur,vol){
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.type='sine'; o.frequency.value=noteFreq(semi,-2);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.05);
+  }
+  function timpani(t,vol){
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(155,t);
+    o.frequency.exponentialRampToValueAtTime(52,t+0.36);
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.5);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.55);
+  }
+  function crashCymbal(t,vol,dur){
+    const n=noiseSource(t,dur);
+    const f=ac.createBiquadFilter(); f.type='highpass'; f.frequency.value=3800;
+    // 減衰はバッファではなく音量エンベロープで付ける
+    const g=ac.createGain();
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001,vol*0.004),t+dur);
+    n.connect(f); f.connect(g); g.connect(master);
+    cleanupAfter(n,[f,g]);   // 後始末が抜けていた
+  }
+  /* ---------- ボス登場の警報 ----------
+     以前は 0.6秒の唸り＋ノイズ1発だけで、登場の重みに対して明らかに短かった。
+     「低い唸り」「警報の2音」「ノイズのライザー」「着弾」を重ねた
+     約2.8秒のシーケンスに作り直す。 */
+  function bossRumble(t,dur,vol){
+    const o=ac.createOscillator(), f=ac.createBiquadFilter(), g=ac.createGain();
+    const lfo=ac.createOscillator(), lg=ac.createGain();
+    o.type='sawtooth'; o.frequency.setValueAtTime(38,t);
+    o.frequency.linearRampToValueAtTime(52,t+dur);        // じわりと迫り上がる
+    f.type='lowpass'; f.frequency.value=190; f.Q.value=6;
+    lfo.type='sine'; lfo.frequency.value=5.5; lg.gain.value=60;
+    lfo.connect(lg); lg.connect(f.frequency);             // 唸りを揺らして不穏に
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+dur*0.55);
+    g.gain.linearRampToValueAtTime(0.0001,t+dur);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); lfo.start(t); o.stop(t+dur+0.05); lfo.stop(t+dur+0.05);
+  }
+  function alarmTone(semi,t,dur,vol){
+    const f=ac.createBiquadFilter(), g=ac.createGain();
+    f.type='lowpass'; f.frequency.value=1300;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+0.04);
+    g.gain.setValueAtTime(vol,t+dur*0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    f.connect(g); g.connect(master);
+    [0,-8].forEach(cents=>{
+      const o=ac.createOscillator();
+      o.type='square'; o.frequency.value=noteFreq(semi,-1); o.detune.value=cents;
+      o.connect(f); o.start(t); o.stop(t+dur+0.05);
+    });
+  }
+  function noiseRiser(t,dur,vol){
+    const n=noiseSource(t,dur);
+    const f=ac.createBiquadFilter(); f.type='bandpass'; f.Q.value=1.4;
+    f.frequency.setValueAtTime(260,t);
+    f.frequency.exponentialRampToValueAtTime(3200,t+dur);  // 上昇して緊張を煽る
+    const g=ac.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(vol,t+dur*0.8);
+    g.gain.linearRampToValueAtTime(0.0001,t+dur);
+    n.connect(f); f.connect(g); g.connect(master);
+    cleanupAfter(n,[f,g]);   // 後始末が抜けていた
+  }
+  function bossAlarm(){
+    if(!ac) return;
+    const t0=ac.currentTime+0.02, span=2.8;
+    bossRumble(t0,span,0.3);                    // 全体に敷く低い唸り
+    noiseRiser(t0+0.25,span-0.5,0.09);          // 上昇するノイズ
+    // 警報の2音を3回くり返す（A → F の短3度下降＝不安を煽る動き）
+    for(let k=0;k<3;k++){
+      const t=t0+0.2+k*0.72;
+      alarmTone(0, t,      0.3,0.16);
+      alarmTone(8, t+0.34, 0.3,0.16);
+    }
+    // 着弾（登場の踏み込み）
+    const tf=t0+span-0.35;
+    timpani(tf,0.75); crashCymbal(tf,0.18,1.6);
+    fanfareSub(0,tf,1.0,0.3);
+  }
+
+  function winFanfare(){
+    if(!ac) return;
+    setupBus();                                 // 余韻用のディレイを確保
+    const t0=ac.currentTime+0.04;
+    master.gain.cancelScheduledValues(t0);
+    master.gain.setValueAtTime(0.32,t0);        // 堂々と鳴らすため少し持ち上げる
+
+    /* ① 導入（約1.1秒）: 低い余韻とティンパニの連打で「これから始まる」溜めを作る。
+       いきなり和音から入ると軽く聞こえるため、必ず助走を置く。 */
+    crashCymbal(t0,0.13,1.6);
+    fanfareSub(0,t0,1.3,0.26);
+    [0,0.42,0.70,0.90,1.04].forEach((d,i)=>timpani(t0+d,0.3+i*0.09)); // 加速するロール
+
+    /* ② 提示（約2.8秒）: Am→F→Dm→E をゆっくり歩かせる。
+       1和音0.7秒と長めに取り、低域を重ねて重量感を出す。 */
+    const step=0.7, t1=t0+1.15;
+    const prog=[
+      {tones:[-12,0,3,7,12],  root:0},   // Am
+      {tones:[-4,8,12,15,20], root:8},   // F
+      {tones:[-7,5,8,12,17],  root:5},   // Dm
+      {tones:[-5,7,11,14,19], root:7},   // E
+    ];
+    prog.forEach((c,i)=>{
+      const t=t1+step*i;
+      timpani(t,0.5);
+      fanfareChord(c.tones,t,step*0.98,0.125,0.09,1900);
+      fanfareSub(c.root,t,step,0.3);
+    });
+
+    /* ③ 解決（約3.4秒）: 最後の大和音。
+       立ち上がりを0.3秒とゆっくりにし、低いオクターブを積むことで
+       「パッと明るい」ではなく「重く広がる」響きにする。 */
+    const tf=t1+step*prog.length;
+    timpani(tf,0.8); crashCymbal(tf,0.2,3.2);
+    fanfareChord([-24,-12,0,7,12,16,19],tf,3.4,0.15,0.3,1700);
+    fanfareSub(0,tf,3.4,0.36);
+    timpani(tf+0.5,0.35);                        // 余韻に一発添える
   }
 
   function startBGM(stageIdx){
@@ -654,26 +1358,43 @@ const Sound = (()=>{
     if(ac.state==='suspended') ac.resume(); // ポーズ復帰・ステージ切替時の保険
     stepDur=60/STAGE_TRACKS[trackIndex].bpm/4;
     if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; } // トラック切替時は張り直す
-    setupBus();
+    teardownBus(); setupBus();                 // 前の面の残響を持ち越さない
     currentStep=0; nextStepTime=ac.currentTime+0.05;
     master.gain.cancelScheduledValues(ac.currentTime);
     master.gain.setValueAtTime(0.28,ac.currentTime);
     bgmTimerId=setInterval(schedulerLoop,LOOKAHEAD_MS);
+    /* 万一スケジューラが死んでも自動で復帰させる安全網。
+       原因が何であれ「BGMが消えたまま戻らない」状態を作らない。 */
+    if(bgmWatchdogId) clearInterval(bgmWatchdogId);
+    let lastStep=-1;
+    bgmWatchdogId=setInterval(()=>{
+      if(!bgmTimerId) return;                  // 意図的に止めている間は何もしない
+      if(currentStep===lastStep){              // 2秒間ひとつも進んでいない＝停止している
+        try{ ac.resume(); }catch(e){}
+        clearInterval(bgmTimerId);
+        currentStep=0; nextStepTime=ac.currentTime+0.05;
+        bgmTimerId=setInterval(schedulerLoop,LOOKAHEAD_MS);
+      }
+      lastStep=currentStep;
+    },2000);
   }
   function stopBGM(){
+    if(bgmWatchdogId){ clearInterval(bgmWatchdogId); bgmWatchdogId=null; }
     if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; }
     if(master&&ac){ master.gain.cancelScheduledValues(ac.currentTime); master.gain.setTargetAtTime(0.28,ac.currentTime,0.05); }
   }
   return {
     ensure,
-    shot:()=>blip(880,0.06,'square',0.12,-300),
-    hit:()=>blip(300,0.05,'square',0.14,-120),
-    boom:()=>{noise(0.28,0.5); blip(120,0.3,'sawtooth',0.2,-60);},
-    power:()=>{blip(660,0.09,'sine',0.25);setTimeout(()=>blip(990,0.12,'sine',0.25),80);},
-    slow:()=>blip(440,0.4,'sine',0.2,-260),
-    hurt:()=>{noise(0.3,0.6); blip(200,0.4,'square',0.25,-140);},
-    boss:()=>{blip(70,0.6,'sawtooth',0.3);noise(0.5,0.3);},
-    win:()=>{[523,659,784,1047].forEach((f,i)=>setTimeout(()=>blip(f,0.3,'triangle',0.25),i*140));},
+    shot:sfxShot,
+    hit:sfxHit,
+    boom:sfxBoom,
+    power:sfxPower,
+    slow:sfxSlow,
+    hurt:sfxHurt,
+    boss:bossAlarm,
+    win:winFanfare,
+    // サウンドテスト画面のラベル表示用（STAGE_TRACKS はクロージャ内なので外から読めない）
+    tracks:()=>STAGE_TRACKS.map(t=>({style:t.style,bpm:t.bpm})),
     startBGM, stopBGM
   };
 })();
@@ -696,19 +1417,22 @@ function DIFF(){ return DIFFICULTY[difficulty]; }
 let player, bullets, enemyBullets, enemies, particles, powerups, stars, floaters;
 let boss, wave, waveTimer, spawnTimer, score, combo, comboTimer, best=0;
 let slowMo, slowGauge, screenShake, state, hitStop;
+let hitFlash=0, killFlash=0; // 被弾/撃破時の画面フラッシュ演出用
 
 function resetGame(){
   const d=DIFF();
   player = {x:W/2,y:H-140,r:16,speed:7,hp:d.hp,maxhp:d.hp,
-            cd:0,level:d.level,invuln:0,thruster:0};
+            cd:0,level:d.level,invuln:0,thruster:0,weaponType:'spread'};
   bullets=[]; enemyBullets=[]; enemies=[]; particles=[];
   powerups=[]; floaters=[]; boss=null;
   wave=0; waveTimer=90; spawnTimer=0; stageIndex=0;
   score=0; combo=0; comboTimer=0;
   slowMo=false; slowGauge=100; screenShake=0; hitStop=0;
+  hitFlash=0; killFlash=0; bgScroll=0;
   initStars();
 }
 
+// 星（3層の視差スクロール）。背景で唯一残しているコード描画の要素。
 function initStars(){
   stars=[];
   for(let i=0;i<160;i++){
@@ -717,6 +1441,87 @@ function initStars(){
       s:[0.4,0.9,1.7][layer], sp:[0.5,1.2,2.4][layer],
       c:['#3a5a8a','#6f8fd0','#bfe0ff'][layer]});
   }
+}
+
+/* ==================== 背景 ====================
+   コードで描く装飾（グリッド・稜線・都市シルエット・巨大構造物・トンネルリング）は
+   すべて廃止し、fal.ai で生成したステージ別の背景アートを主役にする。
+   構成は下記の4つのみ:
+     ① ベースのグラデーション（画像が読めない場合のフォールバックも兼ねる）
+     ② AI生成の背景アート（art/bg_stageN.jpg・ミラータイルで縦ループ）
+     ③ 星（3層の視差スクロール。唯一残したコード描画の背景要素）
+     ④ 周辺減光（ビネット）＝弾と敵を浮き立たせる視認性のための最小限の処理 */
+let bgScroll=0;
+
+/* --- ② AI生成の背景アート --------------------------------------------
+   一度だけオフスクリーンに前処理（ぼかし＋減光）してから毎フレーム描く。
+   縦スクロールの継ぎ目は上下反転タイル（ミラータイル）で消す。 */
+const bgArt=[null,null,null,null,null];   // null=未要求 / 'loading' / 'failed' / HTMLCanvasElement
+function requestBgArt(idx){
+  if(bgArt[idx]!==null) return;
+  bgArt[idx]='loading';
+  const img=new Image();
+  img.onload=()=>{ bgArt[idx]=prepBgArt(img); };
+  img.onerror=()=>{ bgArt[idx]='failed'; };
+  img.src='art/bg_stage'+(idx+1)+'.jpg';
+}
+function prepBgArt(img){
+  const c=document.createElement('canvas');
+  const dw=W, dh=Math.max(1,Math.round(img.height*(W/img.width)));
+  c.width=dw; c.height=dh;
+  const g=c.getContext('2d');
+  // 軽くぼかして細部を落とし、彩度をやや下げて「空気」として機能させる
+  // （元画像がすでにかなり暗いので、ここで落としすぎない）
+  try{ g.filter='blur(2px) saturate(0.8) brightness(0.9)'; }catch(e){}
+  g.drawImage(img,0,0,dw,dh);
+  try{ g.filter='none'; }catch(e){}
+  g.fillStyle='rgba(5,3,15,0.2)';   // 薄い暗幕でコントラストを整える
+  g.fillRect(0,0,dw,dh);
+  return c;
+}
+function drawBgArt(comboBoost){
+  const idx=Math.min(stageIndex,bgArt.length-1);
+  requestBgArt(idx);
+  const c=bgArt[idx];
+  if(!c || c==='loading' || c==='failed') return;   // 無ければ静かにスキップ
+  const dh=c.height, period=dh*2;
+  ctx.save();
+  // コンボが伸びるほどわずかに明るくする（唯一残したコンボ演出の背景側フィードバック）
+  ctx.globalAlpha=Math.min(1,0.8+comboBoost*0.2);
+  for(let y=(bgScroll%period)-period; y<H; y+=period){
+    ctx.drawImage(c,0,y,W,dh);                       // 正立
+    ctx.save();                                      // 上下反転で継ぎ目を一致させる
+    ctx.translate(0,y+dh); ctx.scale(1,-1);
+    ctx.drawImage(c,0,-dh,W,dh);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* --- ③ 周辺減光（ビネット）。周辺を落として弾と敵を浮き立たせる --- */
+function drawVignette(){
+  const g=ctx.createRadialGradient(W/2,H*0.5,H*0.28,W/2,H*0.5,H*0.78);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(3,2,10,0.5)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+
+function drawBackground(comboBoost){
+  // ① ベースのグラデーション
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#0a0620'); grad.addColorStop(1,'#05030f');
+  ctx.fillStyle=grad; ctx.fillRect(-30,-30,W+60,H+60);
+
+  drawBgArt(comboBoost);
+
+  // 星（コンボが伸びるほど心持ち明るく大きく）
+  for(const s of stars){
+    ctx.globalAlpha=Math.min(1,0.9+comboBoost*0.3); ctx.fillStyle=s.c;
+    ctx.fillRect(s.x,s.y,s.s*(1+comboBoost*0.4),s.s*2.2*(1+comboBoost*0.4));
+  }
+  ctx.globalAlpha=1;
+
+  drawVignette();
 }
 
 /* ---------------------- パーティクル ---------------------- */
@@ -732,8 +1537,8 @@ function ring(x,y,color,r0,r1,life=26){
 }
 
 /* ---------------------- 敵 ---------------------- */
-function spawnEnemy(type){
-  const x=rnd(60,W-60), fm=DIFF().fireCdMul;
+function spawnEnemy(type,opt){
+  const x=(opt&&opt.x!==undefined)?opt.x:rnd(60,W-60), fm=DIFF().fireCdMul;
   if(type==='drone')
     enemies.push({type,x,y:-30,r:16,hp:2,t:0,phase:rnd(0,6),
       color:'#22e3ff',score:100,fireCd:rnd(100,180)*fm});
@@ -743,6 +1548,28 @@ function spawnEnemy(type){
   else if(type==='tank')
     enemies.push({type,x,y:-40,r:26,hp:7,t:0,phase:0,
       color:'#ff3ea5',score:400,fireCd:120*fm});
+  else if(type==='shield')
+    // シールド持ち：本体hpの前にshieldHpを削り切る必要がある
+    enemies.push({type,x,y:-30,r:19,hp:3,shieldHp:5,shieldMax:5,t:0,phase:rnd(0,6),
+      color:'#4effe0',score:220,fireCd:rnd(110,170)*fm});
+  else if(type==='splitter')
+    // 分裂する敵：撃破時に小型ドローン2体に分裂する（isChildなら分裂しない）
+    enemies.push({type,x,y:-30,r: (opt&&opt.isChild)?11:20,
+      hp:(opt&&opt.isChild)?1:4,t:0,phase:rnd(0,6),isChild:!!(opt&&opt.isChild),
+      color:'#ffd34e',score:(opt&&opt.isChild)?60:200,fireCd:rnd(130,200)*fm});
+  else if(type==='laserer')
+    // レーザー照射：予告線→ビームの順で自機のx座標を狙う
+    enemies.push({type,x,y:-30,r:18,hp:4,t:0,phase:0,
+      color:'#ff3ea5',score:260,fireCd:rnd(150,220)*fm,beamState:'idle',beamT:0});
+  else if(type==='orbiter')
+    // 周回機：定位置まで降りたあと中心のまわりを回りながら接線方向に撃つ
+    enemies.push({type,x,y:-30,r:15,hp:3,t:0,phase:rnd(0,6.283),
+      color:'#5affaa',score:240,fireCd:rnd(90,150)*fm,
+      orbCx:x, orbCy:rnd(180,330), orbR:rnd(60,120), orbDir:Math.random()<0.5?-1:1});
+  else if(type==='bomber')
+    // 爆撃機：一定時間で炸裂する爆弾を落とす。爆弾は放射状に弾をばらまく
+    enemies.push({type,x,y:-40,r:23,hp:6,t:0,phase:rnd(0,6.283),
+      color:'#ffaa3c',score:380,fireCd:rnd(150,230)*fm});
 }
 
 function spawnBoss(){
@@ -750,17 +1577,17 @@ function spawnBoss(){
   const bhp=Math.round(sb.hp*DIFF().bossHpMul);
   boss={x:W/2,y:-160,ty:180,r:70,hp:bhp,maxhp:bhp,t:0,
     pattern:0,patternT:0,patternCount:sb.patterns,fireCd:0,
-    color:sb.color,name:sb.name,enter:true,dead:false};
-  Sound.boss(); screenShake=18;
-  floater('WARNING — '+sb.name,'#ff3ea5',W/2,H/2-40,110,34);
+    color:sb.color,name:sb.name,enter:true,dead:false,
+    phase:1,rageCd:0,swing:0};
+  Sound.boss(); screenShake=18; hitStop=Math.max(hitStop,16); // 登場の一瞬の間で迫力を出す
 }
 
 /* ---------------------- パワーアップ ---------------------- */
 function dropPower(x,y){
-  const kinds=['weapon','weapon','heal','shield'];
+  const kinds=['weapon','weapon','heal','shield','wtype'];
   const k=kinds[Math.floor(rnd(0,kinds.length))];
-  powerups.push({x,y,vy:1.4,r:13,t:0,kind:k,
-    color:k==='weapon'?'#ffd34e':k==='heal'?'#4effa1':'#22e3ff'});
+  const color=k==='weapon'?'#ffd34e':k==='heal'?'#4effa1':k==='wtype'?'#ff9ff0':'#22e3ff';
+  powerups.push({x,y,vy:1.4,r:13,t:0,kind:k,color});
 }
 
 /* ---------------------- フローティングテキスト ---------------------- */
@@ -769,21 +1596,38 @@ function floater(text,color,x,y,life=50,size=20){
 }
 
 /* ---------------------- 発射 ---------------------- */
+// 武器タイプ: spread(散弾/既定) / laser(貫通レーザー) / homing(ホーミング弾)
+// タイプごとにLv1〜4で弾数・威力が伸びる。'wtype'パワーアップで巡回的に切り替わる。
 function playerShoot(){
-  const lv=player.level;
-  const base={y:player.y-20,vy:-11,r:5,color:'#bff6ff',dmg:1,pl:true};
+  const lv=player.level, wt=player.weaponType;
   Sound.shot();
-  if(lv===1){ bullets.push({...base,x:player.x,vx:0}); }
-  else if(lv===2){ bullets.push({...base,x:player.x-9,vx:0},{...base,x:player.x+9,vx:0}); }
-  else if(lv===3){
-    bullets.push({...base,x:player.x,vx:0},
-      {...base,x:player.x-12,vx:-2.2},{...base,x:player.x+12,vx:2.2});
-  } else {
-    bullets.push({...base,x:player.x,vx:0,r:6,dmg:1.4},
-      {...base,x:player.x-14,vx:-2},{...base,x:player.x+14,vx:2},
-      {...base,x:player.x-22,vx:-4.2},{...base,x:player.x+22,vx:4.2});
+  if(wt==='laser'){
+    const base={y:player.y-20,vy:-16,r:4,color:'#eaffff',dmg:0.45,pl:true,pierce:true};
+    const xs = lv===1?[0] : lv===2?[-8,8] : lv===3?[-10,0,10] : [-15,-5,5,15];
+    xs.forEach(dx=>bullets.push({...base,x:player.x+dx,vx:0,hitSet:new Set()}));
+  }else if(wt==='homing'){
+    const base={y:player.y-20,vy:-7.5,r:5,color:'#ffd34e',dmg:1,pl:true,homing:true,turn:0.09};
+    const n = lv>=4?4:lv>=3?3:lv>=2?2:1;
+    for(let i=0;i<n;i++){
+      const spread=(i-(n-1)/2)*11;
+      bullets.push({...base,x:player.x+spread,vx:(spread)*0.03});
+    }
+  }else{
+    const base={y:player.y-20,vy:-11,r:5,color:'#bff6ff',dmg:1,pl:true};
+    if(lv===1){ bullets.push({...base,x:player.x,vx:0}); }
+    else if(lv===2){ bullets.push({...base,x:player.x-9,vx:0},{...base,x:player.x+9,vx:0}); }
+    else if(lv===3){
+      bullets.push({...base,x:player.x,vx:0},
+        {...base,x:player.x-12,vx:-2.2},{...base,x:player.x+12,vx:2.2});
+    } else {
+      bullets.push({...base,x:player.x,vx:0,r:6,dmg:1.4},
+        {...base,x:player.x-14,vx:-2},{...base,x:player.x+14,vx:2},
+        {...base,x:player.x-22,vx:-4.2},{...base,x:player.x+22,vx:4.2});
+    }
   }
 }
+const WEAPON_ORDER=['spread','laser','homing'];
+const WEAPON_LABEL={spread:'SPREAD',laser:'LASER',homing:'HOMING'};
 
 function enemyShoot(e){
   const ang=Math.atan2(player.y-e.y,player.x-e.x);
@@ -799,6 +1643,17 @@ function enemyShoot(e){
       const a=e.t*0.04+k*Math.PI/4;
       enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,...add});
     }
+  }else if(e.type==='orbiter'){
+    // 円運動の接線方向へ2連射（周回するので発射方向が回り続ける）
+    const tan=e.phase+Math.PI/2*e.orbDir;
+    for(let k=-1;k<=1;k+=2){
+      const a=tan+k*0.12;
+      enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,...add});
+    }
+  }else if(e.type==='bomber'){
+    // 落下して一定時間後に炸裂する爆弾を落とす
+    enemyBullets.push({x:e.x,y:e.y+e.r,vx:0,vy:1.7*DIFF().bulletSpdMul,r:11,
+      color:'#ffaa3c',pl:false,bomb:true,fuse:70});
   }else{
     enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp,...add});
   }
@@ -840,14 +1695,41 @@ function bossShoot(b){
       const bx=60+c*((W-120)/(cols-1));
       enemyBullets.push({x:bx,y:cy-30,vx:0,vy:3.4*bm,r:7,color:'#22e3ff',pl:false});
     }
-  }else{ // 乱れ咲きスパーク：速度違いの多方向弾（最終ステージのみ出現）
+  }else if(b.pattern===5){ // 乱れ咲きスパーク：速度違いの多方向弾
     const n=10;
     for(let i=0;i<n;i++){
       const a=(Math.PI*2/n)*i+b.t*0.05;
       const spd=(3+(i%3)*0.9)*bm;
       enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,r:6,color:'#ffd34e',pl:false});
     }
+  }else if(b.pattern===6){ // 回転十字：4本の腕がゆっくり回りながら弾を吐く
+    for(let arm=0;arm<4;arm++){
+      const a=b.t*0.035+arm*(Math.PI/2);
+      for(let k=1;k<=3;k++){
+        enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*(2.2+k*0.75)*bm,vy:Math.sin(a)*(2.2+k*0.75)*bm,
+          r:7,color:'#ffaa3c',pl:false});
+      }
+    }
+  }else{ // 追尾ミサイル：ゆっくり自機を追う（最終ボスのみ）
+    const ang=Math.atan2(player.y-cy,player.x-cx);
+    for(let k=-1;k<=1;k++){
+      const a=ang+k*0.5;
+      enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*2.5*bm,vy:Math.sin(a)*2.5*bm,
+        r:8,color:'#ff8fd0',pl:false,seek:true,turn:0.028,life:0});
+    }
   }
+  Sound.hit();
+}
+
+// 第2フェーズ限定：既存パターンに重ねて放つ高速の二重リング（レイジバースト）
+function fireRageBurst(b){
+  const cx=b.x,cy=b.y+40, bm=DIFF().bulletSpdMul, n=16;
+  for(let i=0;i<n;i++){
+    const a=(Math.PI*2/n)*i;
+    enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*4.6*bm,vy:Math.sin(a)*4.6*bm,r:7,color:'#ffffff',pl:false});
+    enemyBullets.push({x:cx,y:cy,vx:Math.cos(a)*2.6*bm,vy:Math.sin(a)*2.6*bm,r:7,color:'#ff3ea5',pl:false});
+  }
+  screenShake=Math.max(screenShake,10);
   Sound.hit();
 }
 
@@ -855,7 +1737,11 @@ function bossShoot(b){
 function addScore(v){ score+=Math.round(v*(1+combo*0.05)); }
 function addCombo(x,y){
   combo++; comboTimer=110;
-  if(combo>1 && combo%5===0){
+  if(combo>1 && combo%10===0){
+    floater('COMBO x'+combo+'!!','#ffd34e',W/2,H*0.32,70,30);
+    screenShake=Math.max(screenShake,10);
+    Sound.power();
+  }else if(combo>1 && combo%5===0){
     floater('COMBO x'+combo,'#ffd34e',x,y-10,44,22);
     Sound.power();
   }
@@ -863,6 +1749,13 @@ function addCombo(x,y){
 
 /* ---------------------- ダメージ処理 ---------------------- */
 function damageEnemy(e,dmg,bx,by){
+  if(e.shieldHp>0){
+    e.shieldHp-=dmg;
+    burst(bx,by,'#4effe0',4,3,14);
+    e.hit=4;
+    if(e.shieldHp<=0){ e.shieldHp=0; ring(e.x,e.y,'#4effe0',e.r,e.r+26,20); Sound.hit(); }
+    return;
+  }
   e.hp-=dmg;
   burst(bx,by,e.color,3,3,16);
   if(e.hp<=0){
@@ -879,6 +1772,11 @@ function killEnemy(e){
   floater('+'+e.score,'#bfe0ff',e.x,e.y,34,16);
   if(Math.random()<DIFF().powerRate) dropPower(e.x,e.y);
   enemies.splice(enemies.indexOf(e),1);
+  if(e.type==='splitter' && !e.isChild){
+    spawnEnemy('splitter',{x:e.x-16,isChild:true});
+    spawnEnemy('splitter',{x:e.x+16,isChild:true});
+    enemies[enemies.length-2].y=e.y; enemies[enemies.length-1].y=e.y;
+  }
 }
 
 function hurtPlayer(){
@@ -886,7 +1784,7 @@ function hurtPlayer(){
   if(player.shield){ player.shield=false; player.invuln=60;
     burst(player.x,player.y,'#22e3ff',26,7,40); Sound.slow(); return; }
   player.hp--; player.invuln=90; combo=0;
-  screenShake=16; hitStop=6; Sound.hurt();
+  screenShake=16; hitStop=6; hitFlash=14; Sound.hurt();
   burst(player.x,player.y,'#ff3ea5',30,8,50);
   if(player.hp<=0) endGame(false);
 }
@@ -894,6 +1792,7 @@ function hurtPlayer(){
 /* ---------------------- 状態遷移 ---------------------- */
 const titleScreen=document.getElementById('titleScreen');
 const howtoScreen=document.getElementById('howtoScreen');
+const soundTestScreen=document.getElementById('soundTestScreen');
 const endScreen=document.getElementById('endScreen');
 const pauseScreen=document.getElementById('pauseScreen');
 const endTitle=document.getElementById('endTitle');
@@ -913,11 +1812,13 @@ function setStoryImage(el,src){
 
 function startGame(){
   Sound.ensure();
+  stStop();                       // サウンドテストの試聴が残っていれば止める
   resetGame();
   Sound.startBGM(stageIndex);
   state='play';
   titleScreen.classList.add('hidden');
   howtoScreen.classList.add('hidden');
+  soundTestScreen.classList.add('hidden');
   endScreen.classList.add('hidden');
   pauseScreen.classList.add('hidden');
   stageClearScreen.classList.add('hidden');
@@ -934,7 +1835,7 @@ function endGame(win){
     `MAX COMBO <span>${maxCombo}</span><br>`+
     `BEST <span>${best.toLocaleString()}</span><br>`+
     `DIFFICULTY <span>${difficulty.toUpperCase()}</span>`;
-  if(win) setStoryImage(endScreen,'art/stage3_clear.png');
+  if(win) setStoryImage(endScreen,'art/stage'+STAGES.length+'_clear.jpg');
   else endScreen.classList.remove('storyBg');
   endScreen.classList.remove('hidden');
   touchBar.classList.remove('show');
@@ -945,7 +1846,7 @@ function showStageClear(){
   stageClearTitle.textContent='STAGE '+(stageIndex+1)+' CLEAR';
   stageStoryText.innerHTML=finishedStg.clearStory.replace(/\n/g,'<br>')+
     `<br><br><span style="color:var(--gold)">NEXT: ${STAGES[stageIndex+1].name}</span>`;
-  setStoryImage(stageClearScreen,'art/stage'+(stageIndex+1)+'_clear.png');
+  setStoryImage(stageClearScreen,'art/stage'+(stageIndex+1)+'_clear.jpg');
   stageClearScreen.classList.remove('hidden');
   touchBar.classList.remove('show');
 }
@@ -963,7 +1864,16 @@ function togglePause(){
 // （タブを閉じればJS自体が終了しBGMも止まるが、ホームに戻る・アプリ切替のような
 //   「閉じていないが見えなくなった」状態でもバックグラウンド再生を防ぐための対策）
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='hidden' && state==='play') togglePause();
+  if(document.visibilityState==='hidden'){
+    if(state==='play') togglePause();
+    if(stPlaying>=0) stStop();     // サウンドテストの試聴も止める
+  }
+});
+// 別ウィンドウで開かれている場合はタブを離れても visibilitychange が発火しないため、
+// ウィンドウがフォーカスを失った時点でもポーズしてBGMを止める（バックグラウンド再生の防止）
+addEventListener('blur',()=>{
+  if(state==='play') togglePause();
+  if(stPlaying>=0) stStop();
 });
 addEventListener('pagehide',()=>{ Sound.stopBGM(); });
 
@@ -978,6 +1888,83 @@ document.getElementById('howtoCloseBtn').onclick=()=>{
   howtoScreen.classList.add('hidden');
   titleScreen.classList.remove('hidden');
 };
+
+/* ---------------------- サウンドテスト ----------------------
+   全5面のBGMと全効果音をその場で聴ける画面。
+   STAGES はこの行より後で const 宣言されるため（TDZ）、リストの生成は
+   ボタン配線時ではなく「初回オープン時」に遅延実行する。 */
+let stBuilt=false, stPlaying=-1;   // stPlaying: 再生中トラック番号（-1=停止）
+
+const ST_SFX=[
+  ['shot','自機のショット'],
+  ['hit','敵の発射'],
+  ['boom','爆発'],
+  ['power','パワーアップ取得／コンボ達成'],
+  ['slow','バレットタイム発動'],
+  ['hurt','自機の被弾'],
+  ['boss','ボス登場'],
+  ['win','ミッションクリア（ファンファーレ）'],
+];
+
+function stStop(){
+  Sound.stopBGM();
+  stPlaying=-1;
+  document.querySelectorAll('#stBgmList .stRow').forEach(r=>r.classList.remove('playing'));
+}
+
+function stPlay(idx){
+  Sound.ensure();
+  if(stPlaying===idx){ stStop(); return; }   // 同じ行をもう一度押したら停止
+  Sound.startBGM(idx);
+  stPlaying=idx;
+  document.querySelectorAll('#stBgmList .stRow').forEach((r,i)=>
+    r.classList.toggle('playing', i===idx));
+}
+
+function buildSoundTest(){
+  if(stBuilt) return;
+  stBuilt=true;
+  const info=Sound.tracks();
+
+  const bgmList=document.getElementById('stBgmList');
+  STAGES.forEach((s,i)=>{
+    const t=info[i]||{};
+    const row=document.createElement('div');
+    row.className='stRow';
+    row.innerHTML=
+      '<div class="stIcon">▶</div>'+
+      '<div class="stName">'+s.name+'</div>'+
+      '<div class="stMeta">'+(t.style||'?')+' / '+(t.bpm||'?')+'bpm</div>';
+    row.addEventListener('click',()=>stPlay(i));
+    bgmList.appendChild(row);
+  });
+
+  const sfxList=document.getElementById('stSfxList');
+  ST_SFX.forEach(([key,label])=>{
+    const row=document.createElement('div');
+    row.className='stRow';
+    row.innerHTML=
+      '<div class="stIcon">♪</div>'+
+      '<div class="stName">'+label+'</div>'+
+      '<div class="stMeta">'+key+'</div>';
+    row.addEventListener('click',()=>{ Sound.ensure(); Sound[key](); });
+    sfxList.appendChild(row);
+  });
+}
+
+function closeSoundTest(){
+  stStop();
+  soundTestScreen.classList.add('hidden');
+  titleScreen.classList.remove('hidden');
+}
+
+document.getElementById('soundTestBtn').onclick=()=>{
+  buildSoundTest();
+  titleScreen.classList.add('hidden');
+  soundTestScreen.classList.remove('hidden');
+};
+document.getElementById('soundTestCloseBtn').onclick=closeSoundTest;
+document.getElementById('stStopBtn').onclick=stStop;
 document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     difficulty=btn.dataset.diff;
@@ -985,7 +1972,9 @@ document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
   });
 });
 
-/* ---------------------- ステージ制御（3ステージ・ストーリーで接続） ---------------------- */
+/* ---------------------- ステージ制御（5ステージ・ストーリーで接続） ----------------------
+   色相を cyan → violet → green → amber → magenta と巡らせ、面が変わったことを
+   一目で分かるようにする。ボスは進むほどHPと弾幕パターン数が増える。 */
 let maxCombo=0;
 let stageIndex=0;
 
@@ -1008,16 +1997,36 @@ const STAGES=[
       {kind:'heavy', count:18, gap:40},
     ],
     boss:{name:'SIGNAL WRAITH', hp:190, color:'#a970ff', patterns:5}, // + spiral, wall
-    clearStory:'深層のシグナルも静まった。残るは一つ。\nすべての信号が生まれる場所、虚空の中枢だ。'
+    clearStory:'深層のシグナルも静まった。だが信号をたどった先は、\n機械が生き物のように増殖する領域だった。'
   },
   {
-    name:'STAGE 3 — VOID CORE', tint:'255,62,165',
+    name:'STAGE 3 — BIO LATTICE', tint:'90,255,170',
     waves:[
-      {kind:'heavy', count:18, gap:40},
-      {kind:'mix2',  count:22, gap:36},
-      {kind:'heavy', count:22, gap:34},
+      {kind:'mix2',  count:18, gap:42},
+      {kind:'swarm', count:24, gap:34},
+      {kind:'heavy', count:20, gap:38},
     ],
-    boss:{name:'VOID CORE', hp:260, color:'#ff3ea5', patterns:6}, // 全パターン + spark
+    boss:{name:'LATTICE MOTHER', hp:230, color:'#5affaa', patterns:6}, // 全既存パターン
+    clearStory:'機械に巣食う群体の母体を焼き払った。\n舞い散る胞子の向こうから、灼けた鉄のにおいが流れてくる。'
+  },
+  {
+    name:'STAGE 4 — EMBER GATE', tint:'255,170,60',
+    waves:[
+      {kind:'heavy', count:20, gap:38},
+      {kind:'siege', count:22, gap:36},
+      {kind:'swarm', count:26, gap:30},
+    ],
+    boss:{name:'EMBER WARDEN', hp:300, color:'#ffaa3c', patterns:7}, // + 回転十字
+    clearStory:'門番は砕けた。開いた裂け目の向こうに、\nすべての信号が生まれる場所——虚空の中枢が見える。'
+  },
+  {
+    name:'STAGE 5 — VOID CORE', tint:'255,62,165',
+    waves:[
+      {kind:'siege', count:22, gap:34},
+      {kind:'swarm', count:28, gap:28},
+      {kind:'siege', count:26, gap:30},
+    ],
+    boss:{name:'VOID CORE', hp:380, color:'#ff3ea5', patterns:8}, // 全パターン + 追尾ミサイル
     clearStory:''
   },
 ];
@@ -1048,8 +2057,10 @@ function updateSpawner(dt){
       spawnTimer=w.gap;
       let t='drone';
       if(w.kind==='mix')   t=['drone','drone','weaver'][Math.floor(rnd(0,3))];
-      if(w.kind==='mix2')  t=['drone','weaver','weaver','tank'][Math.floor(rnd(0,4))];
-      if(w.kind==='heavy') t=['weaver','tank','tank','drone'][Math.floor(rnd(0,4))];
+      if(w.kind==='mix2')  t=['drone','weaver','weaver','tank','shield'][Math.floor(rnd(0,5))];
+      if(w.kind==='heavy') t=['weaver','tank','splitter','laserer','drone'][Math.floor(rnd(0,5))];
+      if(w.kind==='swarm') t=['orbiter','orbiter','splitter','drone','shield'][Math.floor(rnd(0,5))];
+      if(w.kind==='siege') t=['bomber','bomber','laserer','tank','orbiter'][Math.floor(rnd(0,5))];
       spawnEnemy(t); waveLeft--;
     }
   } else if(enemies.length===0){
@@ -1071,6 +2082,8 @@ function update(dt){
   comboTimer-=dt; if(comboTimer<=0) combo=0;
   maxCombo=Math.max(maxCombo,combo);
   if(screenShake>0) screenShake*=0.88;
+  if(hitFlash>0) hitFlash-=dt;
+  if(killFlash>0) killFlash-=dt;
   if(player.invuln>0) player.invuln-=dt;
   player.thruster+=dt;
 
@@ -1082,11 +2095,13 @@ function update(dt){
   else { slowGauge=clamp(slowGauge+0.5*dt,0,100); }
   const ts = slowMo?0.35:1;   // 敵・弾の時間スケール
 
-  // 星流れ（プレイヤー速度で視差）
+  // 星流れ（3層の視差）
   for(const s of stars){
     s.y+=s.sp*(slowMo?0.5:1)*dt;
     if(s.y>H){ s.y=0; s.x=rnd(0,W); }
   }
+  // 背景アートは星よりずっと遅く流して奥行きを出す
+  bgScroll += 0.28*(slowMo?0.5:1)*dt;
 
   /* --- プレイヤー移動 --- */
   let mx=0,my=0;
@@ -1111,13 +2126,28 @@ function update(dt){
   /* --- 自弾更新 --- */
   for(let i=bullets.length-1;i>=0;i--){
     const b=bullets[i];
+    if(b.homing){
+      // 最も近い敵/ボスへ緩やかに旋回する
+      let tgt=null, best=1e9;
+      for(const e of enemies){ const d=dist2(b.x,b.y,e.x,e.y); if(d<best){best=d;tgt=e;} }
+      if(boss && !boss.enter && !boss.dead){ const d=dist2(b.x,b.y,boss.x,boss.y); if(d<best){best=d;tgt=boss;} }
+      if(tgt){
+        const ang=Math.atan2(tgt.y-b.y,tgt.x-b.x), curAng=Math.atan2(b.vy,b.vx);
+        let diff=ang-curAng; while(diff>Math.PI)diff-=6.283; while(diff<-Math.PI)diff+=6.283;
+        const na=curAng+clamp(diff,-b.turn,b.turn);
+        const spd=Math.hypot(b.vx,b.vy);
+        b.vx=Math.cos(na)*spd; b.vy=Math.sin(na)*spd;
+      }
+    }
     b.x+=b.vx*dt; b.y+=b.vy*dt;
     if(b.y<-20||b.x<-20||b.x>W+20){ bullets.splice(i,1); continue; }
     // 敵ヒット
     let hit=false;
     for(const e of enemies){
+      if(b.pierce && b.hitSet && b.hitSet.has(e)) continue;
       if(dist2(b.x,b.y,e.x,e.y)<(e.r+b.r)**2){
-        damageEnemy(e,b.dmg,b.x,b.y); hit=true; break;
+        damageEnemy(e,b.dmg,b.x,b.y);
+        if(b.pierce){ b.hitSet.add(e); } else { hit=true; break; }
       }
     }
     if(!hit && boss && !boss.enter && !boss.dead &&
@@ -1125,7 +2155,7 @@ function update(dt){
       boss.hp-=b.dmg; boss.hit=4; burst(b.x,b.y,'#ffd34e',3,3,14);
       addScore(4);
       if(boss.hp<=0) killBoss();
-      hit=true;
+      if(!b.pierce) hit=true;
     }
     if(hit) bullets.splice(i,1);
   }
@@ -1136,9 +2166,39 @@ function update(dt){
     if(e.type==='drone'){ e.y+=1.7*ts*dt; e.x+=Math.sin(e.t*0.05+e.phase)*1.6*ts*dt; }
     else if(e.type==='weaver'){ e.y+=1.3*ts*dt; e.x+=Math.sin(e.t*0.08+e.phase)*3.2*ts*dt; }
     else if(e.type==='tank'){ e.y+=Math.min(0.9,(160-e.y)*0.02)*ts*dt; if(e.y>150)e.y=150+Math.sin(e.t*0.03)*30; }
+    else if(e.type==='shield'){ e.y+=1.4*ts*dt; e.x+=Math.sin(e.t*0.04+e.phase)*1.2*ts*dt; }
+    else if(e.type==='splitter'){ e.y+=(e.isChild?2.1:1.6)*ts*dt; e.x+=Math.sin(e.t*0.07+e.phase)*2.4*ts*dt; }
+    else if(e.type==='laserer'){ e.y+=Math.min(0.7,(140-e.y)*0.02)*ts*dt; if(e.y>130)e.y=130+Math.sin(e.t*0.02)*20; }
+    else if(e.type==='orbiter'){
+      // 中心点まで降下してから、その周りを円運動する
+      e.orbCy=Math.min(e.orbCy,H*0.55);
+      e.phase+=0.022*e.orbDir*ts*dt;
+      const ent=clamp(e.t/70,0,1);                 // 進入をなめらかにする
+      e.x=e.orbCx+Math.cos(e.phase)*e.orbR*ent;
+      e.y=(-30)+(e.orbCy+Math.sin(e.phase)*e.orbR*0.55-(-30))*ent;
+    }
+    else if(e.type==='bomber'){ e.y+=Math.min(0.8,(200-e.y)*0.02)*ts*dt; e.x+=Math.sin(e.t*0.03+e.phase)*1.8*ts*dt; }
     e.x=clamp(e.x,24,W-24);
-    e.fireCd-=ts*dt;
-    if(e.fireCd<=0 && e.y>0 && e.y<H*0.7){ enemyShoot(e); e.fireCd=(e.type==='tank'?120:rnd(120,220))*DIFF().fireCdMul; }
+
+    if(e.type==='laserer'){
+      // 予告線(idle→aim)→発射(fire)→クールダウンの状態機械。自機のxを狙い撃つ
+      if(e.beamState==='idle' && e.fireCd<=0 && e.y>60 && e.y<H*0.55){
+        e.beamState='aim'; e.beamT=50; e.beamX=player.x;
+      }else if(e.beamState==='aim'){
+        e.beamT-=ts*dt;
+        if(e.beamT<=0){
+          e.beamState='fire'; e.beamT=16;
+          enemyBullets.push({x:e.beamX,y:e.y+e.r,vx:0,vy:9,r:9,color:'#ff3ea5',pl:false,beam:true});
+          Sound.hit();
+        }
+      }else if(e.beamState==='fire'){
+        e.beamT-=ts*dt;
+        if(e.beamT<=0){ e.beamState='idle'; e.fireCd=rnd(150,220)*DIFF().fireCdMul; }
+      }
+    }else{
+      e.fireCd-=ts*dt;
+      if(e.fireCd<=0 && e.y>0 && e.y<H*0.7){ enemyShoot(e); e.fireCd=(e.type==='tank'?120:rnd(120,220))*DIFF().fireCdMul; }
+    }
     if(e.y>H+40){ enemies.splice(i,1); combo=0; }
   }
 
@@ -1149,14 +2209,32 @@ function update(dt){
       boss.y+=(boss.ty-boss.y)*0.03*dt;
       if(boss.y>boss.ty-2){ boss.y=boss.ty; boss.enter=false; }
     }else if(!boss.dead){
-      boss.x=W/2+Math.sin(boss.t*0.02)* (W/2-100);
+      // 第2フェーズ移行：HPが半分を切ったら形態変化（1回だけ）
+      if(boss.phase===1 && boss.hp<=boss.maxhp*0.5){
+        boss.phase=2; screenShake=Math.max(screenShake,22); hitStop=Math.max(hitStop,14);
+        Sound.boss(); floater('PHASE 2!','#ff3ea5',W/2,H/2-20,90,44);
+      }
+      /* 左右移動は「経過時間×速度」ではなく位相を積み上げる。
+         sin(t*0.02*speedMul) だとフェーズ2で速度が変わった瞬間に
+         sinの中身が一気に飛び、ボスが瞬間移動してしまうため。
+         位相を足し込む方式なら速度が変わっても位置は連続する。 */
+      const speedMul = boss.phase===2?1.6:1;
+      boss.swing += 0.02*speedMul*ts*dt;
+      boss.x=W/2+Math.sin(boss.swing)*(W/2-100);
       boss.patternT-=ts*dt;
       if(boss.patternT<=0){ boss.pattern=(boss.pattern+1)%boss.patternCount; boss.patternT=180; }
       boss.fireCd-=ts*dt;
       if(boss.fireCd<=0){
         bossShoot(boss);
-        const cdTable=[40,24,24,26,58,20]; // ring, aim, sweep, spiral, wall, spark
-        boss.fireCd=(cdTable[boss.pattern]||24)*DIFF().bossFireMul;
+        // ring, aim, sweep, spiral, wall, spark, cross, seek
+        const cdTable=[40,24,24,26,58,20,34,90];
+        const cdMul=(boss.phase===2?0.72:1)*DIFF().bossFireMul;
+        boss.fireCd=(cdTable[boss.pattern]||24)*cdMul;
+      }
+      // 第2フェーズ限定：通常パターンに重ねて時々レイジバーストを撃つ
+      if(boss.phase===2){
+        boss.rageCd-=ts*dt;
+        if(boss.rageCd<=0){ fireRageBurst(boss); boss.rageCd=150; }
       }
     }
   }
@@ -1164,6 +2242,35 @@ function update(dt){
   /* --- 敵弾更新 --- */
   for(let i=enemyBullets.length-1;i>=0;i--){
     const b=enemyBullets[i];
+
+    // 追尾ミサイル（最終ボスのパターン）：自機へ緩やかに旋回する
+    if(b.seek){
+      const ang=Math.atan2(player.y-b.y,player.x-b.x), cur=Math.atan2(b.vy,b.vx);
+      let d=ang-cur; while(d>Math.PI)d-=6.283; while(d<-Math.PI)d+=6.283;
+      const na=cur+clamp(d,-b.turn,b.turn)*ts;
+      const spd=Math.hypot(b.vx,b.vy);
+      b.vx=Math.cos(na)*spd; b.vy=Math.sin(na)*spd;
+      b.life=(b.life||0)+ts*dt;
+      if(b.life>260){ burst(b.x,b.y,b.color,8,3,20); enemyBullets.splice(i,1); continue; }
+    }
+
+    // 爆撃機の爆弾：導火線が尽きると放射状に炸裂する
+    if(b.bomb){
+      b.fuse-=ts*dt;
+      if(b.fuse<=0){
+        const n=10, bm=DIFF().bulletSpdMul;
+        for(let k=0;k<n;k++){
+          const a=(Math.PI*2/n)*k+rnd(-0.1,0.1);
+          enemyBullets.push({x:b.x,y:b.y,vx:Math.cos(a)*3.1*bm,vy:Math.sin(a)*3.1*bm,
+            r:7,color:'#ffd34e',pl:false});
+        }
+        burst(b.x,b.y,'#ffaa3c',14,5,28);
+        ring(b.x,b.y,'#ffaa3c',6,46,18);
+        Sound.boom(); screenShake=Math.max(screenShake,7);
+        enemyBullets.splice(i,1); continue;
+      }
+    }
+
     b.x+=b.vx*ts*dt; b.y+=b.vy*ts*dt;
     if(b.x<-30||b.x>W+30||b.y<-30||b.y>H+30){ enemyBullets.splice(i,1); continue; }
     if(player.invuln<=0 && dist2(b.x,b.y,player.x,player.y)<(player.r*0.6+b.r)**2){
@@ -1215,6 +2322,10 @@ function applyPower(p){
   }else if(p.kind==='heal'){
     player.hp=clamp(player.hp+1,0,player.maxhp);
     floater('+HP','#4effa1',player.x,player.y-24,50,22);
+  }else if(p.kind==='wtype'){
+    const idx=WEAPON_ORDER.indexOf(player.weaponType);
+    player.weaponType=WEAPON_ORDER[(idx+1)%WEAPON_ORDER.length];
+    floater(WEAPON_LABEL[player.weaponType],'#ff9ff0',player.x,player.y-24,60,22);
   }else{
     player.shield=true;
     floater('SHIELD','#22e3ff',player.x,player.y-24,50,22);
@@ -1222,7 +2333,7 @@ function applyPower(p){
 }
 
 function killBoss(){
-  boss.dead=true;
+  boss.dead=true; killFlash=20;
   // 連続爆発演出
   for(let k=0;k<12;k++){
     setTimeout(()=>{
@@ -1248,28 +2359,13 @@ function draw(){
   ctx.clearRect(0,0,W,H);
   ctx.save();
   if(screenShake>0.5){ ctx.translate(rnd(-screenShake,screenShake),rnd(-screenShake,screenShake)); }
-
-  // 背景グラデ地平線グロー
-  const grad=ctx.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,'#0a0620'); grad.addColorStop(1,'#05030f');
-  ctx.fillStyle=grad; ctx.fillRect(-30,-30,W+60,H+60);
-
-  // ステージごとの色調ティント（面の連続性を色で示す）
-  const stg=STAGES[Math.min(stageIndex,STAGES.length-1)];
-  const tintGrad=ctx.createRadialGradient(W/2,H*0.3,40,W/2,H*0.3,H*0.9);
-  tintGrad.addColorStop(0,`rgba(${stg.tint},0.12)`);
-  tintGrad.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=tintGrad; ctx.fillRect(-30,-30,W+60,H+60);
-
-  // 遠景グリッド（シンセウェーブの床）
-  drawGrid();
-
-  // 星
-  for(const s of stars){
-    ctx.globalAlpha=0.9; ctx.fillStyle=s.c;
-    ctx.fillRect(s.x,s.y,s.s,s.s*2.2);
+  // 撃破の瞬間だけわずかにズームパンチして迫力を出す
+  if(killFlash>0){
+    const zoom=1+clamp(killFlash/20,0,1)*0.03;
+    ctx.translate(W/2,H/2); ctx.scale(zoom,zoom); ctx.translate(-W/2,-H/2);
   }
-  ctx.globalAlpha=1;
+
+  drawBackground(clamp(combo/25,0,1));
 
   if(slowMo){ ctx.fillStyle='rgba(60,20,90,0.18)'; ctx.fillRect(0,0,W,H); }
 
@@ -1283,28 +2379,41 @@ function draw(){
   drawFloaters();
   ctx.restore();
 
+  if(boss && boss.enter) drawBossIntro(boss);
+
+  // 被弾/撃破フラッシュ（画面全体・シェイクや拡縮の影響を受けない最前面レイヤー）
+  if(hitFlash>0){
+    ctx.fillStyle='rgba(255,30,60,'+(clamp(hitFlash/14,0,1)*0.32)+')';
+    ctx.fillRect(0,0,W,H);
+  }
+  if(killFlash>0){
+    ctx.fillStyle='rgba(255,255,255,'+(clamp(killFlash/20,0,1)*0.22)+')';
+    ctx.fillRect(0,0,W,H);
+  }
+
   drawHUD();
 }
 
-function drawGrid(){
+// ボス登場カットイン：レターボックス＋ボス名をボスの入場中(enter中)だけ表示する
+function drawBossIntro(b){
+  const p=clamp(b.t/18,0,1);           // スライドイン
+  const fadeOut=1-clamp((b.t-58)/16,0,1); // 終盤にフェードアウト
+  const a=p*fadeOut;
+  if(a<=0.01) return;
+  const barH=64, cy=H*0.42;
   ctx.save();
-  ctx.strokeStyle='rgba(105,60,180,0.25)'; ctx.lineWidth=1;
-  const horizon=H*0.62;
-  const t=(performance.now()*0.00006)%1;
-  for(let i=0;i<16;i++){
-    const f=((i/16+t)%1);
-    const y=horizon+f*f*(H-horizon);
-    ctx.globalAlpha=0.15+f*0.3;
-    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-  }
-  ctx.globalAlpha=0.28;
-  for(let i=-10;i<=10;i++){
-    ctx.beginPath();
-    ctx.moveTo(W/2+i*30,horizon);
-    ctx.lineTo(W/2+i*260,H);
-    ctx.stroke();
-  }
-  ctx.globalAlpha=1; ctx.restore();
+  ctx.globalAlpha=a;
+  ctx.fillStyle='rgba(5,3,15,0.88)';
+  ctx.fillRect(0,cy-barH/2,W,barH);
+  ctx.strokeStyle=b.color; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,cy-barH/2); ctx.lineTo(W,cy-barH/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,cy+barH/2); ctx.lineTo(W,cy+barH/2); ctx.stroke();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold 32px monospace';
+  neon(()=>{ ctx.fillStyle='#fff'; ctx.fillText(b.name,W/2,cy-2); },b.color,26);
+  ctx.font='11px monospace'; ctx.fillStyle='#a9c8e6';
+  ctx.fillText('WARNING — HOSTILE DETECTED',W/2,cy+18);
+  ctx.restore();
 }
 
 function neon(fn,color,blur=16){
@@ -1502,6 +2611,95 @@ function drawEnemies(){
         ctx.beginPath(); ctx.arc(0,0,3.6,0,7); ctx.fill();
       },'#fff',14);
 
+    }else if(e.type==='shield'){
+      // シールド持ち：正面に半透明のシールドプレート、破壊されると通常のコアだけになる
+      neon(()=>{
+        ctx.rotate(e.t*0.03);
+        ctx.fillStyle=c;
+        ctx.beginPath();
+        for(let i=0;i<5;i++){const a=i*1.2566;ctx.lineTo(Math.cos(a)*e.r*0.75,Math.sin(a)*e.r*0.75);}
+        ctx.closePath(); ctx.fill();
+      },e.color,12);
+      if(e.shieldHp>0){
+        neon(()=>{
+          const sPulse=0.9+Math.sin(e.t*0.15)*0.1;
+          ctx.strokeStyle='rgba(78,255,224,'+(0.5+0.3*(e.shieldHp/e.shieldMax))+')';
+          ctx.lineWidth=3;
+          ctx.beginPath(); ctx.arc(0,0,e.r*1.15*sPulse,0,7); ctx.stroke();
+          ctx.fillStyle='rgba(78,255,224,0.12)';
+          ctx.beginPath(); ctx.arc(0,0,e.r*1.15*sPulse,0,7); ctx.fill();
+        },'#4effe0',16);
+      }
+      neon(()=>{ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,3.2,0,7); ctx.fill(); },'#fff',12);
+
+    }else if(e.type==='splitter'){
+      // 分裂する敵：ひし形コア。中央の割れ目が撃破の予兆を示す
+      neon(()=>{
+        ctx.rotate(e.t*0.05);
+        ctx.fillStyle=c;
+        ctx.beginPath();
+        ctx.moveTo(0,-e.r); ctx.lineTo(e.r*0.8,0); ctx.lineTo(0,e.r); ctx.lineTo(-e.r*0.8,0);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='rgba(10,10,0,0.6)'; ctx.lineWidth=1.4;
+        ctx.beginPath(); ctx.moveTo(0,-e.r*0.6); ctx.lineTo(0,e.r*0.6); ctx.stroke();
+      },e.color,12);
+
+    }else if(e.type==='laserer'){
+      // レーザー照射：待機時は静かなコア、予告(aim)中は赤いラインで狙いを示す
+      neon(()=>{
+        ctx.fillStyle=c;
+        ctx.beginPath();
+        for(let i=0;i<4;i++){const a=i*1.5708+0.785;ctx.lineTo(Math.cos(a)*e.r,Math.sin(a)*e.r);}
+        ctx.closePath(); ctx.fill();
+      },e.color,14);
+      neon(()=>{
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.arc(0,0,3.4,0,7); ctx.fill();
+      },'#fff',10);
+      if(e.beamState==='aim'){
+        ctx.save();
+        ctx.globalAlpha=0.5+Math.sin(e.t*0.6)*0.3;
+        ctx.strokeStyle='#ff3ea5'; ctx.lineWidth=2;
+        ctx.setLineDash([6,6]);
+        ctx.beginPath(); ctx.moveTo(e.beamX-e.x,e.r); ctx.lineTo(e.beamX-e.x,H); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+
+    }else if(e.type==='orbiter'){
+      // 周回機：三日月形のフレームが進行方向を向いて回る
+      neon(()=>{
+        ctx.rotate(e.phase+(e.orbDir>0?1.5708:-1.5708));
+        ctx.fillStyle=c;
+        ctx.beginPath();
+        ctx.arc(0,0,e.r,0.6,Math.PI*2-0.6);
+        ctx.arc(0,0,e.r*0.55,Math.PI*2-0.6,0.6,true);
+        ctx.closePath(); ctx.fill();
+      },e.color,13);
+      neon(()=>{
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.arc(0,0,3,0,7); ctx.fill();
+      },'#fff',12);
+
+    }else if(e.type==='bomber'){
+      // 爆撃機：横長の装甲艇。下部の投下ハッチが明滅する
+      neon(()=>{
+        const g=ctx.createLinearGradient(0,-e.r*0.7,0,e.r*0.7);
+        g.addColorStop(0,'#ffe0a8'); g.addColorStop(0.5,c); g.addColorStop(1,'#8a4a08');
+        ctx.fillStyle=g;
+        ctx.beginPath();
+        ctx.moveTo(-e.r,-e.r*0.25); ctx.lineTo(-e.r*0.5,-e.r*0.7);
+        ctx.lineTo(e.r*0.5,-e.r*0.7); ctx.lineTo(e.r,-e.r*0.25);
+        ctx.lineTo(e.r*0.6,e.r*0.6);  ctx.lineTo(-e.r*0.6,e.r*0.6);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='rgba(30,10,0,0.55)'; ctx.lineWidth=1.4; ctx.stroke();
+      },e.color,15);
+      neon(()=>{                               // 投下ハッチ（明滅）
+        const bl=0.45+0.45*Math.sin(e.t*0.18);
+        ctx.fillStyle=`rgba(255,235,150,${bl.toFixed(2)})`;
+        ctx.fillRect(-6,e.r*0.35,12,5);
+      },'#ffd34e',12);
+
     }else{ // tank
       // 六角重装甲＋4方向砲台＋放熱フィン
       neon(()=>{
@@ -1573,10 +2771,23 @@ function drawBoss(){
     ctx.beginPath(); ctx.arc(0,0,b.r*1.22,-b.t*0.016,-b.t*0.016+3.1); ctx.stroke();
   },'#ff8fd0',18);
 
+  // 第2フェーズ限定：脈動する危険域リング
+  if(b.phase===2){
+    neon(()=>{
+      const p=0.5+Math.sin(b.t*0.2)*0.5;
+      ctx.strokeStyle='rgba(255,255,255,'+(0.25+p*0.4)+')'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,0,b.r*1.32,0,7); ctx.stroke();
+    },'#ffffff',20);
+  }
+
   neon(()=>{
-    // 装甲外殻（放射グラデ・棘状多角形）
+    // 装甲外殻（放射グラデ・棘状多角形）。第2フェーズは白熱した危険な色味に変える
     const shell=ctx.createRadialGradient(0,-b.r*0.3,b.r*0.2,0,0,b.r);
-    shell.addColorStop(0,'#fff2f8'); shell.addColorStop(0.5,c); shell.addColorStop(1,'#5a0f34');
+    if(b.phase===2){
+      shell.addColorStop(0,'#ffffff'); shell.addColorStop(0.45,'#ffd34e'); shell.addColorStop(1,'#7a1748');
+    }else{
+      shell.addColorStop(0,'#fff2f8'); shell.addColorStop(0.5,c); shell.addColorStop(1,'#5a0f34');
+    }
     ctx.fillStyle=shell;
     ctx.beginPath();
     for(let i=0;i<10;i++){const a=i*0.6283+b.t*0.006;const rr=b.r*(i%2?0.7:1);
@@ -1623,18 +2834,59 @@ function drawBoss(){
 
 function drawBullets(){
   for(const b of bullets){
-    neon(()=>{
-      ctx.fillStyle=b.color;
-      ctx.beginPath(); ctx.ellipse(b.x,b.y,b.r*0.6,b.r*1.5,0,0,7); ctx.fill();
-    },'#22e3ff',12);
+    if(b.pierce){
+      neon(()=>{
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.ellipse(b.x,b.y,b.r*0.45,b.r*3.2,0,0,7); ctx.fill();
+      },'#eaffff',14);
+    }else if(b.homing){
+      neon(()=>{
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.arc(b.x,b.y,b.r*0.85,0,7); ctx.fill();
+        ctx.globalAlpha=0.35;
+        ctx.beginPath(); ctx.arc(b.x-b.vx*1.2,b.y-b.vy*1.2,b.r*0.5,0,7); ctx.fill();
+        ctx.globalAlpha=1;
+      },'#ffd34e',14);
+    }else{
+      neon(()=>{
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.ellipse(b.x,b.y,b.r*0.6,b.r*1.5,0,0,7); ctx.fill();
+      },'#22e3ff',12);
+    }
   }
 }
 function drawEnemyBullets(){
   for(const b of enemyBullets){
-    neon(()=>{
-      ctx.fillStyle=b.color;
-      ctx.beginPath(); ctx.arc(b.x,b.y,b.r*0.55,0,7); ctx.fill();
-    },b.color,12);
+    if(b.bomb){
+      // 爆弾：導火線が短いほど速く明滅して炸裂を予告する
+      const bl=0.5+0.5*Math.sin(performance.now()*(0.01+ (1-clamp(b.fuse/70,0,1))*0.05));
+      neon(()=>{
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.arc(b.x,b.y,b.r*0.6,0,7); ctx.fill();
+        ctx.strokeStyle=`rgba(255,255,255,${bl.toFixed(2)})`; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(b.x,b.y,b.r*0.9,0,7); ctx.stroke();
+      },'#ffaa3c',16);
+    }else if(b.seek){
+      // 追尾ミサイル：進行方向へ伸びた紡錘形＋尾を引く
+      neon(()=>{
+        ctx.save(); ctx.translate(b.x,b.y); ctx.rotate(Math.atan2(b.vy,b.vx));
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.ellipse(0,0,b.r*1.1,b.r*0.5,0,0,7); ctx.fill();
+        ctx.globalAlpha=0.4;
+        ctx.beginPath(); ctx.ellipse(-b.r*1.3,0,b.r*0.7,b.r*0.3,0,0,7); ctx.fill();
+        ctx.restore();
+      },'#ff8fd0',16);
+    }else if(b.beam){
+      neon(()=>{
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.ellipse(b.x,b.y,b.r*0.5,b.r*2.2,0,0,7); ctx.fill();
+      },'#ff3ea5',18);
+    }else{
+      neon(()=>{
+        ctx.fillStyle=b.color;
+        ctx.beginPath(); ctx.arc(b.x,b.y,b.r*0.55,0,7); ctx.fill();
+      },b.color,12);
+    }
   }
 }
 function drawPowerups(){
@@ -1647,7 +2899,7 @@ function drawPowerups(){
       ctx.beginPath(); ctx.arc(0,0,p.r,0,7); ctx.stroke();
       ctx.fillStyle=p.color; ctx.font='bold 14px monospace';
       ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(p.kind==='weapon'?'W':p.kind==='heal'?'+':'S',0,1);
+      ctx.fillText(p.kind==='weapon'?'W':p.kind==='heal'?'+':p.kind==='wtype'?'⟳':'S',0,1);
     },p.color,16);
     ctx.restore();
   }
@@ -1722,13 +2974,15 @@ function drawHUD(){
     ctx.bezierCurveTo(hx+9,hy,hx,hy,hx,hy+4);
     ctx.fill(); ctx.shadowBlur=0;
   }
-  // 武器レベル
+  // 武器レベル＋タイプ
   ctx.fillStyle='#7fb0d8'; ctx.font='11px monospace';
   ctx.fillText('WEAPON',20,H-58);
   for(let i=0;i<4;i++){
     ctx.fillStyle=i<player.level?'#ffd34e':'rgba(255,211,78,0.15)';
     ctx.fillRect(74+i*14,H-56,10,8);
   }
+  ctx.fillStyle='#ff9ff0'; ctx.font='bold 10px monospace';
+  ctx.fillText(WEAPON_LABEL[player.weaponType],140,H-58);
 
   // バレットタイムゲージ
   const gw=140, gx=W-gw-20, gy=H-30;
