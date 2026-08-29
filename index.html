@@ -1966,6 +1966,7 @@ function startGame(){
   pauseScreen.classList.add('hidden');
   stageClearScreen.classList.add('hidden');
   touchBar.classList.add('show');
+  btnSlowMobile.classList.remove('hidden');   // ポーズ中に隠れた状態を持ち越さない
 }
 function endGame(win){
   state='end'; Sound.stopBGM();
@@ -2317,6 +2318,11 @@ function nextStage(){
   bullets=[]; enemyBullets=[]; enemies=[]; powerups=[];
   stageClearScreen.classList.add('hidden');
   state='play'; Sound.startBGM(stageIndex);
+  /* 面クリア画面（showStageClear）でタッチバーを隠したままだった。
+     ここで戻さないと、1面クリア以降ずっとSLOW・ポーズボタンが消えたままになる
+     （タブレットで実際に発生）。SLOW側の個別非表示も念のため解除する。 */
+  touchBar.classList.add('show');
+  btnSlowMobile.classList.remove('hidden');
 }
 
 /* ---------------------- メイン更新 ---------------------- */
