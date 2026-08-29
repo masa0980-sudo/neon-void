@@ -72,6 +72,8 @@
       radial-gradient(120% 120% at 50% 30%,rgba(12,8,36,.55),rgba(5,3,15,.9) 80%);
   }
   .hidden{opacity:0;pointer-events:none;}
+  /* ポーズ中のSLOWボタン用: 消さずに薄く見せる（場所は分かるが押せない） */
+  .dimmed{opacity:.35;pointer-events:none;}
   h1{
     font-size:clamp(38px,9vw,86px);letter-spacing:.14em;font-weight:900;
     background:linear-gradient(90deg,var(--cyan),var(--magenta),var(--violet));
@@ -1966,7 +1968,7 @@ function startGame(){
   pauseScreen.classList.add('hidden');
   stageClearScreen.classList.add('hidden');
   touchBar.classList.add('show');
-  btnSlowMobile.classList.remove('hidden');   // ポーズ中に隠れた状態を持ち越さない
+  btnSlowMobile.classList.remove('hidden','dimmed');   // ポーズ中の状態を持ち越さない
 }
 function endGame(win){
   state='end'; Sound.stopBGM();
@@ -1997,11 +1999,12 @@ function showStageClear(){
 function togglePause(){
   if(state==='play'){
     state='pause'; pauseScreen.classList.remove('hidden'); Sound.stopBGM();
-    btnSlowMobile.classList.add('hidden');
+    // 完全に消すと「ボタンが無くなった」ように見えるため、薄く残す（押しても効かない）
+    btnSlowMobile.classList.add('dimmed');
   }else if(state==='pause'){
     pausedByFocusLoss=false;                 // 手動で再開したらフォーカス由来の扱いを解除
     state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM(stageIndex);
-    btnSlowMobile.classList.remove('hidden');
+    btnSlowMobile.classList.remove('dimmed');
   }
 }
 
@@ -2322,7 +2325,7 @@ function nextStage(){
      ここで戻さないと、1面クリア以降ずっとSLOW・ポーズボタンが消えたままになる
      （タブレットで実際に発生）。SLOW側の個別非表示も念のため解除する。 */
   touchBar.classList.add('show');
-  btnSlowMobile.classList.remove('hidden');
+  btnSlowMobile.classList.remove('hidden','dimmed');
 }
 
 /* ---------------------- メイン更新 ---------------------- */
