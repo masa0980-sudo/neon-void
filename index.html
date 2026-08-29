@@ -197,7 +197,7 @@
     <div id="soundTestScreen" class="overlay hidden">
       <h1 style="font-size:clamp(24px,5.5vw,40px)">SOUND TEST</h1>
       <div class="panel">
-        <div class="howtoTitle">BGM（全5面）</div>
+        <div class="howtoTitle">BGM（全5面＋ボス戦）</div>
         <div id="stBgmList"></div>
         <div class="stStopRow"><div class="stStop" id="stStopBtn">■ STOP</div></div>
 
@@ -1582,6 +1582,7 @@ const Sound = (()=>{
     win:winFanfare,
     // サウンドテスト画面のラベル表示用（STAGE_TRACKS はクロージャ内なので外から読めない）
     tracks:()=>STAGE_TRACKS.map(t=>({style:t.style,bpm:t.bpm})),
+    bossTrack:()=>({style:BOSS_TRACK.style,bpm:BOSS_TRACK.bpm}),
     startBGM, startBoss, stopBGM, health:bgmHealth, forceRestart, setLite, pump
   };
 })();
@@ -2211,13 +2212,16 @@ function stStop(){
   document.querySelectorAll('#stBgmList .stRow').forEach(r=>r.classList.remove('playing'));
 }
 
+/* idx が面番号(0〜4)なら面の曲、ST_BOSS ならボス専用曲を鳴らす。
+   ボス曲は面に属さないため、番号ではなく専用の識別子で扱う。 */
+const ST_BOSS=99;
 function stPlay(idx){
   Sound.ensure();
   if(stPlaying===idx){ stStop(); return; }   // 同じ行をもう一度押したら停止
-  Sound.startBGM(idx);
+  if(idx===ST_BOSS) Sound.startBoss(); else Sound.startBGM(idx);
   stPlaying=idx;
-  document.querySelectorAll('#stBgmList .stRow').forEach((r,i)=>
-    r.classList.toggle('playing', i===idx));
+  document.querySelectorAll('#stBgmList .stRow').forEach(r=>
+    r.classList.toggle('playing', Number(r.dataset.track)===idx));
 }
 
 function buildSoundTest(){
@@ -2226,17 +2230,24 @@ function buildSoundTest(){
   const info=Sound.tracks();
 
   const bgmList=document.getElementById('stBgmList');
-  STAGES.forEach((s,i)=>{
-    const t=info[i]||{};
+  const addRow=(id,name,meta)=>{
     const row=document.createElement('div');
     row.className='stRow';
+    row.dataset.track=id;
     row.innerHTML=
       '<div class="stIcon">▶</div>'+
-      '<div class="stName">'+s.name+'</div>'+
-      '<div class="stMeta">'+(t.style||'?')+' / '+(t.bpm||'?')+'bpm</div>';
-    row.addEventListener('click',()=>stPlay(i));
+      '<div class="stName">'+name+'</div>'+
+      '<div class="stMeta">'+meta+'</div>';
+    row.addEventListener('click',()=>stPlay(id));
     bgmList.appendChild(row);
+  };
+  STAGES.forEach((s,i)=>{
+    const t=info[i]||{};
+    addRow(i, s.name, (t.style||'?')+' / '+(t.bpm||'?')+'bpm');
   });
+  // ボス戦曲は全ステージ共通なので、面の一覧の後にまとめて1行だけ置く
+  const bt=Sound.bossTrack();
+  addRow(ST_BOSS, 'BOSS BATTLE（全ステージ共通）', bt.style+' / '+bt.bpm+'bpm');
 
   const sfxList=document.getElementById('stSfxList');
   ST_SFX.forEach(([key,label])=>{
