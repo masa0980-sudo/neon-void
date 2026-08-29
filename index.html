@@ -621,6 +621,7 @@ const Sound = (()=>{
   let bgmTimerId=null, nextStepTime=0, currentStep=0, stepDur=60/148/4;
   let bgmDelay=null, bgmDelayFeedback=null, bgmDelayWet=null, bgmWatchdogId=null;
   let sharedFilters=null;   // 面ごとに使い回す静的フィルター群（下の sharedChain 参照）
+  let bossMode=false;       // ボス戦中はボス専用トラックに差し替える
   let trackIndex=0;
 
   // 半音オフセットはAを基準(0)としたAナチュラルマイナー・スケール上の値。
@@ -683,6 +684,28 @@ const Sound = (()=>{
       bass:[0,1,0,1, 0,2,0,1, 0,1,0,1, 0,2,0,1],
     },
   ];
+  /* ボス戦専用トラック。全ステージ共通で、ボス出現の少し前から差し替える。
+     「重厚感」を出すための方針:
+       ・テンポを落とす(104)。速さではなく一撃の重さで圧を出す
+       ・スネアを8拍目だけのハーフタイムにして、間を空けて重く聞かせる
+       ・小節頭にティンパニとブラススタブを置き、宣言的な圧を作る
+       ・ベースは歪んだ低音を8分で刻み続け、地鳴りを絶やさない
+       ・主旋律は歪んだリードで低めの音域を鳴らす（高く鳴らすと軽くなる）
+     コード進行は Am → F → Dm → E。最後をメジャーのEにして解決させず緊張を残す。 */
+  const BOSS_TRACK={
+    style:'boss', bpm:104, delayFeedback:0.3, delayWet:0.18,
+    chords:[
+      {root:0, tones:[0,3,7]},     // Am
+      {root:8, tones:[8,12,15]},   // F
+      {root:5, tones:[5,8,12]},    // Dm
+      {root:7, tones:[7,11,14]},   // E（メジャー・解決させない緊張）
+    ],
+    // 下降する動機。休符を多めに取り、一音ずつ重く置く
+    riff:[2,null,1,null, 0,null,null,null, 3,null,2,null, 1,null,0,null],
+    // 8分で刻み続ける地鳴り。要所で5度に跳ねて押し上げる
+    bass:[0,null,0,null, 0,null,2,null, 0,null,0,null, 0,null,2,null],
+  };
+
   const noteFreq=(semi,oct=0)=>110*Math.pow(2,(semi+12*oct)/12);
   function extTone(chord,deg){ // 度数インデックス→半音オフセット
     if(deg===3) return chord.tones[0]+12;
@@ -730,11 +753,13 @@ const Sound = (()=>{
       bgmDelay.connect(bgmDelayFeedback); bgmDelayFeedback.connect(bgmDelay);
       bgmDelay.connect(bgmDelayWet); bgmDelayWet.connect(master);
     }
-    const track=STAGE_TRACKS[trackIndex];
+    const track=curTrack();
     bgmDelay.delayTime.value=stepDur*3;
     bgmDelayFeedback.gain.value=track.delayFeedback;
     bgmDelayWet.gain.value=track.delayWet;
   }
+  // 再生中のトラック。ボス戦中は面ごとの曲ではなくボス専用曲を鳴らす
+  function curTrack(){ return bossMode ? BOSS_TRACK : STAGE_TRACKS[trackIndex]; }
 
   // 和音を1オクターブ上のルートで補強して厚みを出す（全スタイル共通）
   const fullChord=c=>c.tones.concat([c.tones[0]+12]);
@@ -1223,13 +1248,40 @@ const Sound = (()=>{
     if(deg!==null) leadNote(leadVoicing(chord,deg),t,stepDur*1.5);
   }
 
+  /* ボス戦。速さではなく「一撃の重さ」と「間」で圧を出す。
+     スネアは8拍目だけのハーフタイム。空いた間にティンパニの余韻を響かせる。 */
+  function scheduleBoss(track,chord,s,t,phase2){
+    if(s%4===0) kickDrum(t);
+    if(s===6||s===14) kickDrum(t,true);        // 踏み込みを足して前へ押す
+    if(s===8) snareDrum(t);                    // ハーフタイム。ここだけ強く叩く
+    if(s===0) timpani(t,0.34);                 // 小節頭の宣言。重心を最下段に置く
+    if(s===12) timpani(t,0.18);
+    if(!liteAudio && (s===2||s===10)) hihat(t,false);   // 隙間を最小限だけ埋める
+    if(phase2 && s%4===2) hihat(t,s%8===6);    // 第2形態は刻みを増やして切迫させる
+
+    const bDeg=track.bass[s];
+    if(bDeg!==null){
+      const semi=chord.root+(bDeg===2?7:0);
+      distBass(semi,t,stepDur*1.8,0.23);       // 歪んだ低音で地鳴りを絶やさない
+    }
+    // 小節いっぱいの厚い和音。これが「重厚感」の土台になる
+    if(s===0) sustainPad(fullChord(chord),t,stepDur*16*0.98,0.075,'sawtooth');
+    if(s===0||s===8) brassStab(fullChord(chord),t,stepDur*3.6);   // 宣言的な圧
+    const deg=track.riff[s];
+    if(deg!==null) growlLead(leadVoicing(chord,deg),t,stepDur*1.7);
+  }
+
   function scheduleStep(stepIdx,t){
-    const track=STAGE_TRACKS[trackIndex];
+    const track=curTrack();
     const chord=track.chords[Math.floor(stepIdx/16)%track.chords.length];
     const s=stepIdx%16;
     const bossFight = typeof boss!=='undefined' && !!boss; // ボス戦は少しだけ密度を上げる
 
-    if(track.style==='dark') scheduleDark(track,chord,s,t,bossFight);
+    if(track.style==='boss'){
+      // 第2形態では編成を密にして、見た目の変化に音でも呼応させる
+      scheduleBoss(track,chord,s,t, bossFight && boss.phase===2);
+    }
+    else if(track.style==='dark') scheduleDark(track,chord,s,t,bossFight);
     else if(track.style==='pulse') schedulePulse(track,chord,s,t,bossFight);
     else if(track.style==='march') scheduleMarch(track,chord,s,t,bossFight);
     else if(track.style==='aggressive') scheduleAggressive(track,chord,s,t,bossFight);
@@ -1417,9 +1469,15 @@ const Sound = (()=>{
 
   function startBGM(stageIdx){
     if(typeof stageIdx==='number') trackIndex=clamp(stageIdx,0,STAGE_TRACKS.length-1);
+    bossMode=false;                          // 面の曲に戻す
+    restart();
+  }
+  // ボス専用トラックへ切り替える（面の曲は trackIndex に保持したまま）
+  function startBoss(){ bossMode=true; restart(); }
+  function restart(){
     if(!ac) return;
     if(ac.state==='suspended') ac.resume(); // ポーズ復帰・ステージ切替時の保険
-    stepDur=60/STAGE_TRACKS[trackIndex].bpm/4;
+    stepDur=60/curTrack().bpm/4;
     if(bgmTimerId){ clearInterval(bgmTimerId); bgmTimerId=null; } // トラック切替時は張り直す
     teardownBus(); setupBus();                 // 前の面の残響を持ち越さない
     currentStep=0; nextStepTime=ac.currentTime+0.05;
@@ -1508,7 +1566,9 @@ const Sound = (()=>{
       master.gain.cancelScheduledValues(ac.currentTime);
       master.gain.setValueAtTime(0.28,ac.currentTime);   // 音量が絞られたまま固まる事故への保険
     }
-    startBGM(typeof stageIdx==='number'?stageIdx:trackIndex);
+    // ボス戦中に復旧が走ったとき、面の曲へ戻してしまわないよう現在の曲を維持する
+    if(typeof stageIdx==='number') trackIndex=clamp(stageIdx,0,STAGE_TRACKS.length-1);
+    restart();
   }
   return {
     ensure,
@@ -1522,7 +1582,7 @@ const Sound = (()=>{
     win:winFanfare,
     // サウンドテスト画面のラベル表示用（STAGE_TRACKS はクロージャ内なので外から読めない）
     tracks:()=>STAGE_TRACKS.map(t=>({style:t.style,bpm:t.bpm})),
-    startBGM, stopBGM, health:bgmHealth, forceRestart, setLite, pump
+    startBGM, startBoss, stopBGM, health:bgmHealth, forceRestart, setLite, pump
   };
 })();
 
@@ -1552,7 +1612,7 @@ function resetGame(){
             cd:0,level:d.level,invuln:0,thruster:0,weaponType:'spread'};
   bullets=[]; enemyBullets=[]; enemies=[]; particles=[];
   powerups=[]; floaters=[]; boss=null;
-  wave=0; waveTimer=90; spawnTimer=0; stageIndex=0;
+  wave=0; waveTimer=90; spawnTimer=0; stageIndex=0; bossIncoming=false;
   score=0; combo=0; comboTimer=0;
   slowMo=false; slowGauge=100; screenShake=0; hitStop=0;
   hitFlash=0; killFlash=0; bgScroll=0;
@@ -2003,7 +2063,9 @@ function togglePause(){
     btnSlowMobile.classList.add('dimmed');
   }else if(state==='pause'){
     pausedByFocusLoss=false;                 // 手動で再開したらフォーカス由来の扱いを解除
-    state='play'; pauseScreen.classList.add('hidden'); Sound.startBGM(stageIndex);
+    state='play'; pauseScreen.classList.add('hidden');
+    // ボス戦中に再開したら面の曲ではなくボス曲へ戻す
+    if(bossIncoming) Sound.startBoss(); else Sound.startBGM(stageIndex);
     btnSlowMobile.classList.remove('dimmed');
   }
 }
@@ -2232,7 +2294,7 @@ const STAGES=[
       {kind:'mix',   count:14, gap:50},
       {kind:'mix2',  count:16, gap:48},
     ],
-    boss:{name:'OUTER SENTINEL', hp:130, color:'#ff3ea5', patterns:3}, // ring/aim/sweep
+    boss:{name:'OUTER SENTINEL', hp:156, color:'#ff3ea5', patterns:3}, // ring/aim/sweep
     clearStory:'見張り役のボスを倒した。だがこれで終わりではない。\nより深いシグナルが、まだ奥で明滅している。'
   },
   {
@@ -2242,7 +2304,7 @@ const STAGES=[
       {kind:'mix2',  count:20, gap:42},
       {kind:'heavy', count:18, gap:40},
     ],
-    boss:{name:'SIGNAL WRAITH', hp:190, color:'#a970ff', patterns:5}, // + spiral, wall
+    boss:{name:'SIGNAL WRAITH', hp:228, color:'#a970ff', patterns:5}, // + spiral, wall
     clearStory:'深層のシグナルも静まった。だが信号をたどった先は、\n機械が生き物のように増殖する領域だった。'
   },
   {
@@ -2252,7 +2314,7 @@ const STAGES=[
       {kind:'swarm', count:24, gap:34},
       {kind:'heavy', count:20, gap:38},
     ],
-    boss:{name:'LATTICE MOTHER', hp:230, color:'#5affaa', patterns:6}, // 全既存パターン
+    boss:{name:'LATTICE MOTHER', hp:276, color:'#5affaa', patterns:6}, // 全既存パターン
     clearStory:'機械に巣食う群体の母体を焼き払った。\n舞い散る胞子の向こうから、灼けた鉄のにおいが流れてくる。'
   },
   {
@@ -2262,7 +2324,7 @@ const STAGES=[
       {kind:'siege', count:22, gap:36},
       {kind:'swarm', count:26, gap:30},
     ],
-    boss:{name:'EMBER WARDEN', hp:300, color:'#ffaa3c', patterns:7}, // + 回転十字
+    boss:{name:'EMBER WARDEN', hp:360, color:'#ffaa3c', patterns:7}, // + 回転十字
     clearStory:'門番は砕けた。開いた裂け目の向こうに、\nすべての信号が生まれる場所——虚空の中枢が見える。'
   },
   {
@@ -2272,12 +2334,13 @@ const STAGES=[
       {kind:'swarm', count:28, gap:28},
       {kind:'siege', count:26, gap:30},
     ],
-    boss:{name:'VOID CORE', hp:380, color:'#ff3ea5', patterns:8}, // 全パターン + 追尾ミサイル
+    boss:{name:'VOID CORE', hp:440, color:'#ff3ea5', patterns:8}, // 全パターン + 追尾ミサイル
     clearStory:''
   },
 ];
 
 let waveLeft=0;
+let bossIncoming=false;   // ボス曲へ切り替え済みか（面ごとに1回だけ）
 
 function startWave(){
   wave++;
@@ -2310,6 +2373,14 @@ function updateSpawner(dt){
       spawnEnemy(t); waveLeft--;
     }
   } else if(enemies.length===0){
+    /* 最終ウェーブを片付けた時点で、ボス登場より先にBGMをボス曲へ切り替える。
+       曲が変わってから実際に出てくるまでの間（約2.5秒）が予兆になる。 */
+    if(wave===stg.waves.length && !bossIncoming){
+      bossIncoming=true;
+      waveTimer=150;
+      Sound.startBoss();
+      floater('WARNING','#ff3ea5',W/2,H/2-30,120,46);
+    }
     // 次ウェーブへ
     waveTimer-=dt;
     if(waveTimer<=0){ waveTimer=60; startWave(); }
@@ -2317,7 +2388,7 @@ function updateSpawner(dt){
 }
 
 function nextStage(){
-  stageIndex++; wave=0; waveTimer=70; spawnTimer=0; waveLeft=0;
+  stageIndex++; wave=0; waveTimer=70; spawnTimer=0; waveLeft=0; bossIncoming=false;
   bullets=[]; enemyBullets=[]; enemies=[]; powerups=[];
   stageClearScreen.classList.add('hidden');
   state='play'; Sound.startBGM(stageIndex);
@@ -2472,20 +2543,26 @@ function update(dt){
       const speedMul = boss.phase===2?1.6:1;
       boss.swing += 0.02*speedMul*ts*dt;
       boss.x=W/2+Math.sin(boss.swing)*(W/2-100);
+      /* パターンの切替を速める。手数が増えるほど「対応し続ける」必要が出て歯応えが上がる。
+         第2形態はさらに短くして、覚えた対処が通用しにくい局面を作る。 */
       boss.patternT-=ts*dt;
-      if(boss.patternT<=0){ boss.pattern=(boss.pattern+1)%boss.patternCount; boss.patternT=180; }
+      if(boss.patternT<=0){
+        boss.pattern=(boss.pattern+1)%boss.patternCount;
+        boss.patternT = boss.phase===2 ? 110 : 150;
+      }
       boss.fireCd-=ts*dt;
       if(boss.fireCd<=0){
         bossShoot(boss);
         // ring, aim, sweep, spiral, wall, spark, cross, seek
-        const cdTable=[40,24,24,26,58,20,34,90];
-        const cdMul=(boss.phase===2?0.72:1)*DIFF().bossFireMul;
+        // 発射間隔を約2割詰めて弾幕を濃くする（従来 [40,24,24,26,58,20,34,90]）
+        const cdTable=[32,19,19,21,46,16,27,72];
+        const cdMul=(boss.phase===2?0.62:1)*DIFF().bossFireMul;
         boss.fireCd=(cdTable[boss.pattern]||24)*cdMul;
       }
       // 第2フェーズ限定：通常パターンに重ねて時々レイジバーストを撃つ
       if(boss.phase===2){
         boss.rageCd-=ts*dt;
-        if(boss.rageCd<=0){ fireRageBurst(boss); boss.rageCd=150; }
+        if(boss.rageCd<=0){ fireRageBurst(boss); boss.rageCd=115; }
       }
     }
   }
