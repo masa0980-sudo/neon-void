@@ -2016,7 +2016,47 @@ function setStoryImage(el,src){
   img.src=src;
 }
 
+/* =========================================================
+   PlayCounts — 累計プレイ回数（Firestore, カウントのみ）
+        Rhythm_game/tennis-game と同じ方針でSDKを使わずfetch()で完結させる。
+        rythm-game-mo は複数の公開ゲームでプレイ回数の記録先として共有しており、
+        このアプリは gameId "neon-void" で1件のドキュメントに記録する。
+   ========================================================= */
+const PlayCounts = (()=>{
+  const PROJECT_ID = 'rythm-game-mo';
+  const API_KEY = 'AIzaSyBBo4f_LqJ2lfdKu8Q11oeiiYq_O-15LSc';
+  const ROOT = 'https://firestore.googleapis.com/v1/projects/' + PROJECT_ID + '/databases/(default)/documents';
+
+  // 再生開始のたびに+1。失敗してもゲームプレイには一切影響させない（fire-and-forget）。
+  // 既存ドキュメントへのincrementを先に試し、無ければ(初回プレイ)count:1での
+  // 新規作成にフォールバックする（ルール側もcount==1での新規作成のみ許可）。
+  function increment(gameId){
+    const commitUrl = ROOT + ':commit?key=' + API_KEY;
+    const docPath = 'projects/' + PROJECT_ID + '/databases/(default)/documents/playCounts/' + encodeURIComponent(gameId);
+    const incrementBody = {
+      writes: [{
+        transform: {
+          document: docPath,
+          fieldTransforms: [{ fieldPath:'count', increment:{ integerValue:'1' } }]
+        }
+      }]
+    };
+    const createBody = {
+      writes: [{
+        update: { name: docPath, fields: { count:{ integerValue:'1' } } },
+        currentDocument: { exists:false }
+      }]
+    };
+    return fetch(commitUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(incrementBody) })
+      .then(res => { if(res.ok) return; return fetch(commitUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(createBody) }); })
+      .catch(e => console.warn('playCount increment failed:', e));
+  }
+
+  return { increment };
+})();
+
 function startGame(){
+  PlayCounts.increment('neon-void');   // START/RETRY 共通のここ1箇所でプレイ開始をカウント
   Sound.ensure();
   stStop();                       // サウンドテストの試聴が残っていれば止める
   resetGame();
