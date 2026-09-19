@@ -187,6 +187,7 @@
         <div class="diffBtn active" data-diff="normal">NORMAL</div>
         <div class="diffBtn" data-diff="hard">HARD</div>
       </div>
+      <div class="sub" id="bestLabel" style="margin-top:2px;"></div>
       <button class="btn" id="startBtn">START</button>
       <div class="btnGhost" id="howtoBtn">操作方法 ／ HOW TO PLAY</div>
       <div class="btnGhost" id="soundTestBtn">サウンドテスト ／ SOUND TEST</div>
@@ -1612,9 +1613,32 @@ const DIFFICULTY = {
 let difficulty='normal';
 function DIFF(){ return DIFFICULTY[difficulty]; }
 
+/* ---------------------- ハイスコア（難易度別・localStorage） ----------------------
+   以前は best がメモリ上の変数だけで、リロードすると消えていた。難易度ごとに分けて保存する。 */
+const BEST_KEY='neonVoidBest';
+function loadBests(){
+  try{
+    const o=JSON.parse(localStorage.getItem(BEST_KEY)||'{}');
+    return {easy:o.easy|0, normal:o.normal|0, hard:o.hard|0};
+  }catch(e){ return {easy:0,normal:0,hard:0}; }
+}
+const bests=loadBests();
+function bestFor(d){ return bests[d]||0; }
+function recordBest(d,s){
+  if(s<=bestFor(d)) return false;
+  bests[d]=s;
+  try{ localStorage.setItem(BEST_KEY,JSON.stringify(bests)); }catch(e){}
+  return true;
+}
+function paintBestLabel(){
+  const el=document.getElementById('bestLabel'); if(!el) return;
+  const b=bestFor(difficulty);
+  el.textContent = b>0 ? `BEST (${difficulty.toUpperCase()}) ${b.toLocaleString()}` : '';
+}
+
 /* ---------------------- エンティティ ---------------------- */
 let player, bullets, enemyBullets, enemies, particles, powerups, stars, floaters;
-let boss, wave, waveTimer, spawnTimer, score, combo, comboTimer, best=0;
+let boss, wave, waveTimer, spawnTimer, score, combo, comboTimer;
 let slowMo, slowGauge, screenShake, state, hitStop;
 let hitFlash=0, killFlash=0; // 被弾/撃破時の画面フラッシュ演出用
 
@@ -2101,13 +2125,14 @@ function startGame(){
 function endGame(win){
   state='end'; Sound.stopBGM();
   if(win) Sound.win();
-  best=Math.max(best,score);
+  const newBest=recordBest(difficulty,score);
+  paintBestLabel();
   endTitle.textContent = win?'MISSION CLEAR':'GAME OVER';
   endTitle.className = 'big '+(win?'win':'go');
   endStat.innerHTML =
-    `SCORE <span>${score.toLocaleString()}</span><br>`+
+    `SCORE <span>${score.toLocaleString()}</span>${newBest?' <span style="color:var(--gold)">NEW BEST!</span>':''}<br>`+
     `MAX COMBO <span>${maxCombo}</span><br>`+
-    `BEST <span>${best.toLocaleString()}</span><br>`+
+    `BEST <span>${bestFor(difficulty).toLocaleString()}</span><br>`+
     `DIFFICULTY <span>${difficulty.toUpperCase()}</span>`;
   if(win) setStoryImage(endScreen,'art/stage'+STAGES.length+'_clear.jpg');
   else endScreen.classList.remove('storyBg');
@@ -2346,8 +2371,10 @@ document.querySelectorAll('#diffRow .diffBtn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     difficulty=btn.dataset.diff;
     document.querySelectorAll('#diffRow .diffBtn').forEach(b=>b.classList.toggle('active',b===btn));
+    paintBestLabel();
   });
 });
+paintBestLabel();
 
 /* 音質・画質の手動切替はタイトル画面から外し、自動判定に任せる。
    fpsが落ちれば発光を切り、音声が実時間に追いつかなくなれば音数を減らす。
