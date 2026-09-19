@@ -358,9 +358,19 @@ function toLocal(ev){
   const t=ev.touches?ev.touches[0]:ev;
   return {x:(t.clientX-r.left)/r.width*W, y:(t.clientY-r.top)/r.height*H};
 }
-CV.addEventListener('pointerdown',e=>{ pointer=toLocal(e); keys.fire=true; });
-CV.addEventListener('pointermove',e=>{ if(pointer) pointer=toLocal(e); });
-addEventListener('pointerup',()=>{ pointer=null; keys.fire=false; });
+// ドラッグ操作は「最初にキャンバスに触れた指」だけを追う。pointerId を覚えておかないと、
+// SLOWボタンを押している別の指を離した瞬間の pointerup でドラッグまで解除され、
+// 自機が止まる（同時押しの取りこぼし）。
+let dragId=null;
+CV.addEventListener('pointerdown',e=>{
+  if(dragId!==null) return;                     // 2本目以降の指はドラッグに割り当てない
+  dragId=e.pointerId; pointer=toLocal(e); keys.fire=true;
+  if(CV.setPointerCapture) try{ CV.setPointerCapture(e.pointerId); }catch(err){}
+});
+CV.addEventListener('pointermove',e=>{ if(pointer && e.pointerId===dragId) pointer=toLocal(e); });
+function endDrag(e){ if(dragId!==null && e.pointerId!==dragId) return; dragId=null; pointer=null; keys.fire=false; }
+addEventListener('pointerup',endDrag);
+addEventListener('pointercancel',endDrag);
 
 // スマホ用タッチボタン：SLOWは長押しでバレットタイム、ポーズはタップでトグル
 // （ゲーム画面の外・下のバーに配置しているのでプレイ画面を隠さず、
